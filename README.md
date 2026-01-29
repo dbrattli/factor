@@ -155,25 +155,35 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 | `flat_mapi(source, fn)` | Map with index to observables, merge (= mapi + merge_inner) |
 | `concat_map(source, fn)` | Map to observables, concatenate in order (= map + concat_inner) |
 | `concat_mapi(source, fn)` | Map with index to observables, concatenate (= mapi + concat_inner) |
+| `switch_map(source, fn)` | Map to observables, switch to latest (= map + switch_inner) |
+| `switch_mapi(source, fn)` | Map with index to observables, switch (= mapi + switch_inner) |
 | `merge_inner(source)` | Flatten Observable(Observable(a)) by merging |
 | `concat_inner(source)` | Flatten Observable(Observable(a)) in order |
+| `switch_inner(source)` | Flatten Observable(Observable(a)) by switching to latest |
 | `scan(source, init, fn)` | Running accumulation, emit each step |
 | `reduce(source, init, fn)` | Final accumulation, emit on completion |
 | `group_by(source, fn)` | Group elements into sub-observables by key |
+| `tap(source, fn)` | Side effect for each emission, pass through unchanged |
+| `start_with(source, values)` | Prepend values before source emissions |
+| `pairwise(source)` | Emit consecutive pairs: `[1,2,3]` → `[#(1,2), #(2,3)]` |
 
 ### Filter
 
-|             Operator             |            Description             |
-| -------------------------------- | ---------------------------------- |
-| `filter(source, predicate)`      | Keep elements matching predicate   |
-| `take(source, n)`                | Take first N elements              |
-| `skip(source, n)`                | Skip first N elements              |
-| `take_while(source, predicate)`  | Take while predicate is true       |
-| `skip_while(source, predicate)`  | Skip while predicate is true       |
-| `choose(source, fn)`             | Filter + map via Option            |
-| `distinct_until_changed(source)` | Skip consecutive duplicates        |
-| `take_until(source, other)`      | Take until other observable emits  |
-| `take_last(source, n)`           | Emit last N elements on completion |
+| Operator | Description |
+| --- | --- |
+| `filter(source, predicate)` | Keep elements matching predicate |
+| `take(source, n)` | Take first N elements |
+| `skip(source, n)` | Skip first N elements |
+| `take_while(source, predicate)` | Take while predicate is true |
+| `skip_while(source, predicate)` | Skip while predicate is true |
+| `choose(source, fn)` | Filter + map via Option |
+| `distinct_until_changed(source)` | Skip consecutive duplicates |
+| `take_until(source, other)` | Take until other observable emits |
+| `take_last(source, n)` | Emit last N elements on completion |
+| `first(source)` | Take only first element (error if empty) |
+| `last(source)` | Take only last element (error if empty) |
+| `default_if_empty(source, val)` | Emit default if source is empty |
+| `sample(source, sampler)` | Sample source when sampler emits |
 
 ### Timeshift (Async)
 
@@ -196,13 +206,15 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 
 ### Combine
 
-|              Operator               |                    Description                     |
-| ----------------------------------- | -------------------------------------------------- |
-| `merge(sources)`                    | Merge multiple observables into one                |
-| `merge2(source1, source2)`          | Merge two observables                              |
-| `combine_latest(s1, s2, fn)`        | Combine latest values from two sources             |
-| `with_latest_from(source, s2, fn)`  | Sample source with latest from another             |
-| `zip(source1, source2, fn)`         | Pair elements by index                             |
+| Operator | Description |
+| --- | --- |
+| `merge(sources)` | Merge multiple observables into one |
+| `merge2(source1, source2)` | Merge two observables |
+| `concat(sources)` | Subscribe to sources sequentially |
+| `concat2(source1, source2)` | Concatenate two observables |
+| `combine_latest(s1, s2, fn)` | Combine latest values from two sources |
+| `with_latest_from(source, s2, fn)` | Sample source with latest from another |
+| `zip(source1, source2, fn)` | Pair elements by index |
 
 ### Error Handling
 

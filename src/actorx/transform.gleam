@@ -588,6 +588,409 @@ pub fn concat_mapi(
 }
 
 // ============================================================================
+// switch_inner - Flatten Observable(Observable(a)) by switching
+// ============================================================================
+
+/// Messages for the switch_inner coordinator actor
+type SwitchInnerMsg(a) {
+  /// Outer emitted a new inner observable (actor assigns ID)
+  SwitchInnerNew(Observable(a))
+  /// Inner observable emitted a value
+  SwitchInnerNext(a, Int)
+  /// Inner observable completed
+  SwitchInnerCompleted(Int)
+  /// Inner observable errored
+  SwitchInnerError(String)
+  /// Outer completed
+  SwitchOuterCompleted
+  /// Outer errored
+  SwitchOuterError(String)
+  /// Dispose all subscriptions
+  SwitchInnerDispose
+}
+
+/// State for switch_inner actor
+type SwitchInnerState {
+  SwitchInnerState(
+    next_id: Int,
+    current_id: Int,
+    outer_stopped: Bool,
+    has_active: Bool,
+  )
+}
+
+/// Flattens an Observable of Observables by switching to the latest.
+///
+/// When a new inner observable arrives, the previous inner is disposed
+/// and the new one becomes active. Only emissions from the current
+/// inner are forwarded.
+///
+/// This is useful for scenarios like search-as-you-type where you only
+/// care about the latest request.
+///
+/// ## Example
+/// ```gleam
+/// // Cancel previous search when new query arrives
+/// search_queries
+/// |> switch_inner()
+/// ```
+pub fn switch_inner(source: Observable(Observable(a))) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(SwitchInnerMsg(a))) =
+      process.new_subject()
+
+    // Spawn coordinator actor
+    process.spawn(fn() {
+      let control: Subject(SwitchInnerMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      let initial_state =
+        SwitchInnerState(
+          next_id: 1,
+          current_id: 0,
+          outer_stopped: False,
+          has_active: False,
+        )
+      switch_inner_loop(control, downstream, initial_state)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create switch_inner"
+    }
+
+    // Subscribe to outer source
+    let outer_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(inner) -> process.send(control, SwitchInnerNew(inner))
+          OnError(e) -> process.send(control, SwitchOuterError(e))
+          OnCompleted -> process.send(control, SwitchOuterCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let outer_disp = subscribe(outer_observer)
+
+    // Return disposable
+    Disposable(dispose: fn() {
+      let Disposable(dispose_outer) = outer_disp
+      dispose_outer()
+      process.send(control, SwitchInnerDispose)
+      Nil
+    })
+  })
+}
+
+fn switch_inner_loop(
+  control: Subject(SwitchInnerMsg(a)),
+  downstream: fn(Notification(a)) -> Nil,
+  state: SwitchInnerState,
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    SwitchInnerNew(inner_observable) -> {
+      // Assign ID to this inner
+      let id = state.next_id
+
+      // Subscribe to new inner with this ID
+      let inner_observer =
+        Observer(notify: fn(n) {
+          case n {
+            OnNext(value) -> process.send(control, SwitchInnerNext(value, id))
+            OnError(e) -> process.send(control, SwitchInnerError(e))
+            OnCompleted -> process.send(control, SwitchInnerCompleted(id))
+          }
+        })
+
+      let Observable(inner_subscribe) = inner_observable
+      let _inner_disp = inner_subscribe(inner_observer)
+
+      // Update state - this ID is now current, increment next_id
+      switch_inner_loop(
+        control,
+        downstream,
+        SwitchInnerState(
+          ..state,
+          next_id: id + 1,
+          current_id: id,
+          has_active: True,
+        ),
+      )
+    }
+
+    SwitchInnerNext(value, id) -> {
+      // Only forward if this is from the current inner
+      case id == state.current_id {
+        True -> downstream(OnNext(value))
+        False -> Nil
+      }
+      switch_inner_loop(control, downstream, state)
+    }
+
+    SwitchInnerCompleted(id) -> {
+      // Only matters if this is the current inner
+      case id == state.current_id {
+        True -> {
+          case state.outer_stopped {
+            True -> {
+              // Outer done and current inner done - complete
+              downstream(OnCompleted)
+              Nil
+            }
+            False -> {
+              // Wait for more inners or outer completion
+              switch_inner_loop(
+                control,
+                downstream,
+                SwitchInnerState(..state, has_active: False),
+              )
+            }
+          }
+        }
+        False -> switch_inner_loop(control, downstream, state)
+      }
+    }
+
+    SwitchInnerError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    SwitchOuterCompleted -> {
+      case state.has_active {
+        True -> {
+          // Wait for current inner to complete
+          switch_inner_loop(
+            control,
+            downstream,
+            SwitchInnerState(..state, outer_stopped: True),
+          )
+        }
+        False -> {
+          // No active inner - complete immediately
+          downstream(OnCompleted)
+          Nil
+        }
+      }
+    }
+
+    SwitchOuterError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    SwitchInnerDispose -> Nil
+  }
+}
+
+// ============================================================================
+// switch_map - Composed from map + switch_inner
+// ============================================================================
+
+/// Projects each element into an observable and switches to the latest.
+///
+/// This is composed from `map` and `switch_inner`:
+/// `switch_map(source, f) = source |> map(f) |> switch_inner()`
+///
+/// When a new element arrives, the previous inner observable is cancelled
+/// and the mapper is called to create a new one.
+///
+/// ## Example
+/// ```gleam
+/// // Search as you type - cancel previous request on new keystroke
+/// keystrokes
+/// |> debounce(300)
+/// |> switch_map(fn(query) { search_api(query) })
+/// ```
+pub fn switch_map(
+  source: Observable(a),
+  mapper: fn(a) -> Observable(b),
+) -> Observable(b) {
+  source
+  |> map(mapper)
+  |> switch_inner()
+}
+
+// ============================================================================
+// switch_mapi - Composed from mapi + switch_inner
+// ============================================================================
+
+/// Projects each element and its index into an observable and switches to latest.
+///
+/// This is composed from `mapi` and `switch_inner`:
+/// `switch_mapi(source, f) = source |> mapi(f) |> switch_inner()`
+pub fn switch_mapi(
+  source: Observable(a),
+  mapper: fn(a, Int) -> Observable(b),
+) -> Observable(b) {
+  source
+  |> mapi(mapper)
+  |> switch_inner()
+}
+
+// ============================================================================
+// tap - Side effects without transforming
+// ============================================================================
+
+/// Performs a side effect for each emission without transforming.
+///
+/// Useful for debugging, logging, or triggering external actions.
+///
+/// ## Example
+/// ```gleam
+/// source
+/// |> tap(fn(x) { io.println("Got: " <> int.to_string(x)) })
+/// |> map(fn(x) { x * 2 })
+/// ```
+pub fn tap(source: Observable(a), effect: fn(a) -> Nil) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    let upstream_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> {
+            effect(x)
+            downstream(OnNext(x))
+          }
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    subscribe(upstream_observer)
+  })
+}
+
+// ============================================================================
+// start_with - Prepend values
+// ============================================================================
+
+/// Prepends values before the source emissions.
+///
+/// ## Example
+/// ```gleam
+/// from_list([3, 4, 5])
+/// |> start_with([1, 2])
+/// // Emits: 1, 2, 3, 4, 5
+/// ```
+pub fn start_with(source: Observable(a), values: List(a)) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Emit prepended values first
+    list.each(values, fn(v) { downstream(OnNext(v)) })
+
+    // Then subscribe to source
+    let Observable(subscribe) = source
+    subscribe(observer)
+  })
+}
+
+// ============================================================================
+// pairwise - Emit consecutive pairs
+// ============================================================================
+
+/// Messages for the pairwise actor
+type PairwiseMsg(a) {
+  PairwiseNext(a)
+  PairwiseError(String)
+  PairwiseCompleted
+  PairwiseDispose
+}
+
+/// Emits consecutive pairs of values.
+///
+/// ## Example
+/// ```gleam
+/// from_list([1, 2, 3, 4])
+/// |> pairwise()
+/// // Emits: #(1, 2), #(2, 3), #(3, 4)
+/// ```
+pub fn pairwise(source: Observable(a)) -> Observable(#(a, a)) {
+  Observable(subscribe: fn(observer: Observer(#(a, a))) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(PairwiseMsg(a))) = process.new_subject()
+
+    // Spawn actor
+    process.spawn(fn() {
+      let control: Subject(PairwiseMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      pairwise_loop(control, downstream, None)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create pairwise actor"
+    }
+
+    // Subscribe to source
+    let source_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> process.send(control, PairwiseNext(x))
+          OnError(e) -> process.send(control, PairwiseError(e))
+          OnCompleted -> process.send(control, PairwiseCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let source_disp = subscribe(source_observer)
+
+    Disposable(dispose: fn() {
+      let Disposable(dispose_source) = source_disp
+      dispose_source()
+      process.send(control, PairwiseDispose)
+      Nil
+    })
+  })
+}
+
+import gleam/option.{type Option, None, Some}
+
+fn pairwise_loop(
+  control: Subject(PairwiseMsg(a)),
+  downstream: fn(Notification(#(a, a))) -> Nil,
+  prev: Option(a),
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    PairwiseNext(x) -> {
+      case prev {
+        Some(p) -> {
+          downstream(OnNext(#(p, x)))
+          pairwise_loop(control, downstream, Some(x))
+        }
+        None -> pairwise_loop(control, downstream, Some(x))
+      }
+    }
+    PairwiseError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    PairwiseCompleted -> {
+      downstream(OnCompleted)
+      Nil
+    }
+    PairwiseDispose -> Nil
+  }
+}
+
+// ============================================================================
 // scan - Running accumulation
 // ============================================================================
 

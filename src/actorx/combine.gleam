@@ -652,3 +652,129 @@ fn zip_loop(
     ZipDispose -> Nil
   }
 }
+
+// ============================================================================
+// concat - Subscribe to sources sequentially
+// ============================================================================
+
+/// Messages for the concat actor
+type ConcatMsg(a) {
+  ConcatNext(a)
+  ConcatError(String)
+  ConcatSourceCompleted
+  ConcatDispose
+}
+
+/// Concatenates multiple observable sequences sequentially.
+///
+/// Subscribes to each source only after the previous one completes.
+/// Values from each source are emitted in order.
+///
+/// ## Example
+/// ```gleam
+/// let obs1 = from_list([1, 2])
+/// let obs2 = from_list([3, 4])
+/// concat([obs1, obs2])
+/// // Emits: 1, 2, 3, 4
+/// ```
+pub fn concat(sources: List(Observable(a))) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    case sources {
+      [] -> {
+        // Empty list - complete immediately
+        downstream(OnCompleted)
+        Disposable(dispose: fn() { Nil })
+      }
+      _ -> {
+        // Create control channel
+        let control_ready: Subject(Subject(ConcatMsg(a))) =
+          process.new_subject()
+
+        // Spawn actor
+        process.spawn(fn() {
+          let control: Subject(ConcatMsg(a)) = process.new_subject()
+          process.send(control_ready, control)
+          concat_loop(control, downstream, sources)
+        })
+
+        // Get control subject
+        let control = case process.receive(control_ready, 1000) {
+          Ok(s) -> s
+          Error(_) -> panic as "Failed to create concat actor"
+        }
+
+        Disposable(dispose: fn() {
+          process.send(control, ConcatDispose)
+          Nil
+        })
+      }
+    }
+  })
+}
+
+fn concat_loop(
+  control: Subject(ConcatMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  remaining: List(Observable(a)),
+) -> Nil {
+  case remaining {
+    [] -> {
+      downstream(OnCompleted)
+      Nil
+    }
+    [current, ..rest] -> {
+      // Subscribe to current source
+      let source_observer =
+        Observer(notify: fn(n) {
+          case n {
+            OnNext(x) -> process.send(control, ConcatNext(x))
+            OnError(e) -> process.send(control, ConcatError(e))
+            OnCompleted -> process.send(control, ConcatSourceCompleted)
+          }
+        })
+
+      let Observable(subscribe) = current
+      let _disp = subscribe(source_observer)
+
+      // Process messages for this source
+      concat_source_loop(control, downstream, rest)
+    }
+  }
+}
+
+fn concat_source_loop(
+  control: Subject(ConcatMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  remaining: List(Observable(a)),
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    ConcatNext(x) -> {
+      downstream(OnNext(x))
+      concat_source_loop(control, downstream, remaining)
+    }
+    ConcatError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    ConcatSourceCompleted -> {
+      // Move to next source
+      concat_loop(control, downstream, remaining)
+    }
+    ConcatDispose -> Nil
+  }
+}
+
+// ============================================================================
+// concat2 - Concatenate two observables
+// ============================================================================
+
+/// Concatenates two observable sequences.
+pub fn concat2(source1: Observable(a), source2: Observable(a)) -> Observable(a) {
+  concat([source1, source2])
+}

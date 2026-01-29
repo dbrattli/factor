@@ -240,6 +240,63 @@ pub fn concat_inner(
   transform.concat_inner(source)
 }
 
+/// Flattens an Observable of Observables by switching to the latest.
+///
+/// When a new inner arrives, the previous inner is cancelled.
+/// Useful for search-as-you-type patterns.
+pub fn switch_inner(
+  source: types.Observable(types.Observable(a)),
+) -> types.Observable(a) {
+  transform.switch_inner(source)
+}
+
+/// Project each element to an observable and switch to the latest.
+///
+/// Composed from `map` and `switch_inner`:
+/// `switch_map(source, f) = source |> map(f) |> switch_inner()`
+pub fn switch_map(
+  source: types.Observable(a),
+  mapper: fn(a) -> types.Observable(b),
+) -> types.Observable(b) {
+  transform.switch_map(source, mapper)
+}
+
+/// Project each element and its index to an observable and switch to latest.
+pub fn switch_mapi(
+  source: types.Observable(a),
+  mapper: fn(a, Int) -> types.Observable(b),
+) -> types.Observable(b) {
+  transform.switch_mapi(source, mapper)
+}
+
+/// Performs a side effect for each emission without transforming.
+pub fn tap(
+  source: types.Observable(a),
+  effect: fn(a) -> Nil,
+) -> types.Observable(a) {
+  transform.tap(source, effect)
+}
+
+/// Prepends values before the source emissions.
+pub fn start_with(
+  source: types.Observable(a),
+  values: List(a),
+) -> types.Observable(a) {
+  transform.start_with(source, values)
+}
+
+/// Emits consecutive pairs of values.
+///
+/// ## Example
+/// ```gleam
+/// from_list([1, 2, 3, 4])
+/// |> pairwise()
+/// // Emits: #(1, 2), #(2, 3), #(3, 4)
+/// ```
+pub fn pairwise(source: types.Observable(a)) -> types.Observable(#(a, a)) {
+  transform.pairwise(source)
+}
+
 /// Applies an accumulator function over the source, emitting each
 /// intermediate result.
 ///
@@ -361,6 +418,32 @@ pub fn take_until(
 /// Take the last N elements (emitted on completion).
 pub fn take_last(source: types.Observable(a), count: Int) -> types.Observable(a) {
   filter.take_last(source, count)
+}
+
+/// Take only the first element. Errors if source is empty.
+pub fn first(source: types.Observable(a)) -> types.Observable(a) {
+  filter.first(source)
+}
+
+/// Take only the last element. Errors if source is empty.
+pub fn last(source: types.Observable(a)) -> types.Observable(a) {
+  filter.last(source)
+}
+
+/// Emit default value if source completes empty.
+pub fn default_if_empty(
+  source: types.Observable(a),
+  default: a,
+) -> types.Observable(a) {
+  filter.default_if_empty(source, default)
+}
+
+/// Sample source when sampler emits.
+pub fn sample(
+  source: types.Observable(a),
+  sampler: types.Observable(b),
+) -> types.Observable(a) {
+  filter.sample(source, sampler)
 }
 
 // ============================================================================
@@ -526,6 +609,20 @@ pub fn zip(
   combiner: fn(a, b) -> c,
 ) -> types.Observable(c) {
   combine.zip(source1, source2, combiner)
+}
+
+/// Concatenates multiple observables sequentially.
+/// Subscribes to each source only after the previous completes.
+pub fn concat(sources: List(types.Observable(a))) -> types.Observable(a) {
+  combine.concat(sources)
+}
+
+/// Concatenates two observables sequentially.
+pub fn concat2(
+  source1: types.Observable(a),
+  source2: types.Observable(a),
+) -> types.Observable(a) {
+  combine.concat2(source1, source2)
 }
 
 // ============================================================================

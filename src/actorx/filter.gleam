@@ -690,6 +690,436 @@ fn take_last_loop(
 }
 
 // ============================================================================
+// first - Take only the first element
+// ============================================================================
+
+/// Messages for the first actor
+type FirstMsg(a) {
+  FirstNext(a)
+  FirstError(String)
+  FirstCompleted
+  FirstDispose
+}
+
+/// Takes only the first element from the source.
+///
+/// Errors if the source completes without emitting.
+///
+/// ## Example
+/// ```gleam
+/// from_list([1, 2, 3])
+/// |> first()
+/// // Emits: 1, then completes
+/// ```
+pub fn first(source: Observable(a)) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(FirstMsg(a))) = process.new_subject()
+
+    // Spawn actor
+    process.spawn(fn() {
+      let control: Subject(FirstMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      first_loop(control, downstream, False)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create first actor"
+    }
+
+    // Subscribe to source
+    let source_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> process.send(control, FirstNext(x))
+          OnError(e) -> process.send(control, FirstError(e))
+          OnCompleted -> process.send(control, FirstCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let source_disp = subscribe(source_observer)
+
+    Disposable(dispose: fn() {
+      let Disposable(dispose_source) = source_disp
+      dispose_source()
+      process.send(control, FirstDispose)
+      Nil
+    })
+  })
+}
+
+fn first_loop(
+  control: Subject(FirstMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  got_value: Bool,
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    FirstNext(x) -> {
+      case got_value {
+        True -> first_loop(control, downstream, True)
+        False -> {
+          downstream(OnNext(x))
+          downstream(OnCompleted)
+          Nil
+        }
+      }
+    }
+    FirstError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    FirstCompleted -> {
+      case got_value {
+        True -> Nil
+        False -> {
+          downstream(OnError("Sequence contains no elements"))
+          Nil
+        }
+      }
+    }
+    FirstDispose -> Nil
+  }
+}
+
+// ============================================================================
+// last - Take only the last element
+// ============================================================================
+
+/// Messages for the last actor
+type LastMsg(a) {
+  LastNext(a)
+  LastError(String)
+  LastCompleted
+  LastDispose
+}
+
+/// Takes only the last element from the source.
+///
+/// Errors if the source completes without emitting.
+///
+/// ## Example
+/// ```gleam
+/// from_list([1, 2, 3])
+/// |> last()
+/// // Emits: 3, then completes
+/// ```
+pub fn last(source: Observable(a)) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(LastMsg(a))) = process.new_subject()
+
+    // Spawn actor
+    process.spawn(fn() {
+      let control: Subject(LastMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      last_loop(control, downstream, None)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create last actor"
+    }
+
+    // Subscribe to source
+    let source_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> process.send(control, LastNext(x))
+          OnError(e) -> process.send(control, LastError(e))
+          OnCompleted -> process.send(control, LastCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let source_disp = subscribe(source_observer)
+
+    Disposable(dispose: fn() {
+      let Disposable(dispose_source) = source_disp
+      dispose_source()
+      process.send(control, LastDispose)
+      Nil
+    })
+  })
+}
+
+fn last_loop(
+  control: Subject(LastMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  latest: Option(a),
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    LastNext(x) -> last_loop(control, downstream, Some(x))
+    LastError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    LastCompleted -> {
+      case latest {
+        Some(x) -> {
+          downstream(OnNext(x))
+          downstream(OnCompleted)
+          Nil
+        }
+        None -> {
+          downstream(OnError("Sequence contains no elements"))
+          Nil
+        }
+      }
+    }
+    LastDispose -> Nil
+  }
+}
+
+// ============================================================================
+// default_if_empty - Emit default value if source is empty
+// ============================================================================
+
+/// Messages for the default_if_empty actor
+type DefaultIfEmptyMsg(a) {
+  DefaultIfEmptyNext(a)
+  DefaultIfEmptyError(String)
+  DefaultIfEmptyCompleted
+  DefaultIfEmptyDispose
+}
+
+/// Emits a default value if the source completes without emitting.
+///
+/// ## Example
+/// ```gleam
+/// empty()
+/// |> default_if_empty(42)
+/// // Emits: 42, then completes
+/// ```
+pub fn default_if_empty(source: Observable(a), default: a) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(DefaultIfEmptyMsg(a))) =
+      process.new_subject()
+
+    // Spawn actor
+    process.spawn(fn() {
+      let control: Subject(DefaultIfEmptyMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      default_if_empty_loop(control, downstream, default, False)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create default_if_empty actor"
+    }
+
+    // Subscribe to source
+    let source_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> process.send(control, DefaultIfEmptyNext(x))
+          OnError(e) -> process.send(control, DefaultIfEmptyError(e))
+          OnCompleted -> process.send(control, DefaultIfEmptyCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let source_disp = subscribe(source_observer)
+
+    Disposable(dispose: fn() {
+      let Disposable(dispose_source) = source_disp
+      dispose_source()
+      process.send(control, DefaultIfEmptyDispose)
+      Nil
+    })
+  })
+}
+
+fn default_if_empty_loop(
+  control: Subject(DefaultIfEmptyMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  default: a,
+  has_value: Bool,
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    DefaultIfEmptyNext(x) -> {
+      downstream(OnNext(x))
+      default_if_empty_loop(control, downstream, default, True)
+    }
+    DefaultIfEmptyError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    DefaultIfEmptyCompleted -> {
+      case has_value {
+        True -> {
+          downstream(OnCompleted)
+          Nil
+        }
+        False -> {
+          downstream(OnNext(default))
+          downstream(OnCompleted)
+          Nil
+        }
+      }
+    }
+    DefaultIfEmptyDispose -> Nil
+  }
+}
+
+// ============================================================================
+// sample - Sample source when another observable emits
+// ============================================================================
+
+/// Messages for the sample actor
+type SampleMsg(a) {
+  SampleValue(a)
+  SampleTrigger
+  SampleSourceError(String)
+  SampleSourceCompleted
+  SampleSamplerCompleted
+  SampleDispose
+}
+
+/// Samples the source observable when the sampler observable emits.
+///
+/// Each time the sampler emits, the most recent value from the source
+/// is emitted (if any new value has arrived since last sample).
+///
+/// ## Example
+/// ```gleam
+/// // Emit mouse position every 100ms
+/// mouse_moves
+/// |> sample(interval(100))
+/// ```
+pub fn sample(source: Observable(a), sampler: Observable(b)) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(SampleMsg(a))) = process.new_subject()
+
+    // Spawn actor
+    process.spawn(fn() {
+      let control: Subject(SampleMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      sample_loop(control, downstream, None, False, False)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create sample actor"
+    }
+
+    // Subscribe to source
+    let source_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> process.send(control, SampleValue(x))
+          OnError(e) -> process.send(control, SampleSourceError(e))
+          OnCompleted -> process.send(control, SampleSourceCompleted)
+        }
+      })
+
+    let Observable(subscribe_source) = source
+    let source_disp = subscribe_source(source_observer)
+
+    // Subscribe to sampler
+    let sampler_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(_) -> process.send(control, SampleTrigger)
+          OnError(e) -> process.send(control, SampleSourceError(e))
+          OnCompleted -> process.send(control, SampleSamplerCompleted)
+        }
+      })
+
+    let Observable(subscribe_sampler) = sampler
+    let sampler_disp = subscribe_sampler(sampler_observer)
+
+    Disposable(dispose: fn() {
+      let Disposable(dispose_source) = source_disp
+      let Disposable(dispose_sampler) = sampler_disp
+      dispose_source()
+      dispose_sampler()
+      process.send(control, SampleDispose)
+      Nil
+    })
+  })
+}
+
+fn sample_loop(
+  control: Subject(SampleMsg(a)),
+  downstream: fn(types.Notification(a)) -> Nil,
+  latest: Option(a),
+  source_done: Bool,
+  sampler_done: Bool,
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    SampleValue(x) -> {
+      sample_loop(control, downstream, Some(x), source_done, sampler_done)
+    }
+    SampleTrigger -> {
+      case latest {
+        Some(x) -> {
+          downstream(OnNext(x))
+          // Clear the value so we don't emit same value twice
+          sample_loop(control, downstream, None, source_done, sampler_done)
+        }
+        None ->
+          sample_loop(control, downstream, None, source_done, sampler_done)
+      }
+    }
+    SampleSourceError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+    SampleSourceCompleted -> {
+      case sampler_done {
+        True -> {
+          downstream(OnCompleted)
+          Nil
+        }
+        False -> sample_loop(control, downstream, latest, True, sampler_done)
+      }
+    }
+    SampleSamplerCompleted -> {
+      case source_done {
+        True -> {
+          downstream(OnCompleted)
+          Nil
+        }
+        False -> sample_loop(control, downstream, latest, source_done, True)
+      }
+    }
+    SampleDispose -> Nil
+  }
+}
+
+// ============================================================================
 // Helper functions
 // ============================================================================
 
