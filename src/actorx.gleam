@@ -26,6 +26,7 @@
 //// }
 //// ```
 
+import actorx/combine
 import actorx/create
 import actorx/filter
 import actorx/subject
@@ -305,4 +306,56 @@ pub fn subject() -> #(types.Observer(a), types.Observable(a)) {
 /// - The Observable side can be subscribed to (once only!)
 pub fn single_subject() -> #(types.Observer(a), types.Observable(a)) {
   subject.single_subject()
+}
+
+// ============================================================================
+// Combining operators
+// ============================================================================
+
+/// Merges multiple observable sequences into a single observable sequence.
+/// Values are emitted as they arrive from any source.
+/// Completes when all sources complete.
+pub fn merge(sources: List(types.Observable(a))) -> types.Observable(a) {
+  combine.merge(sources)
+}
+
+/// Merge two observables.
+pub fn merge2(
+  source1: types.Observable(a),
+  source2: types.Observable(a),
+) -> types.Observable(a) {
+  combine.merge2(source1, source2)
+}
+
+/// Combines the latest values from two observable sequences.
+/// Emits whenever either source emits, after both have emitted at least once.
+/// Completes when both sources complete.
+pub fn combine_latest(
+  source1: types.Observable(a),
+  source2: types.Observable(b),
+  combiner: fn(a, b) -> c,
+) -> types.Observable(c) {
+  combine.combine_latest(source1, source2, combiner)
+}
+
+/// Combines the source observable with the latest value from another observable.
+/// Emits only when the source emits, pairing with the latest value from sampler.
+/// Completes when source completes.
+pub fn with_latest_from(
+  source: types.Observable(a),
+  sampler: types.Observable(b),
+  combiner: fn(a, b) -> c,
+) -> types.Observable(c) {
+  combine.with_latest_from(source, sampler, combiner)
+}
+
+/// Combines two observable sequences by pairing their elements by index.
+/// Emits when both sources have emitted a value at the same index.
+/// Completes when either source completes.
+pub fn zip(
+  source1: types.Observable(a),
+  source2: types.Observable(b),
+  combiner: fn(a, b) -> c,
+) -> types.Observable(c) {
+  combine.zip(source1, source2, combiner)
 }

@@ -183,6 +183,16 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 | `subject()`        | Multicast subject, allows multiple subscribers      |
 | `single_subject()` | Single-subscriber subject, buffers until subscribed |
 
+### Combine
+
+|              Operator               |                    Description                     |
+| ----------------------------------- | -------------------------------------------------- |
+| `merge(sources)`                    | Merge multiple observables into one                |
+| `merge2(source1, source2)`          | Merge two observables                              |
+| `combine_latest(s1, s2, fn)`        | Combine latest values from two sources             |
+| `with_latest_from(source, s2, fn)`  | Sample source with latest from another             |
+| `zip(source1, source2, fn)`         | Pair elements by index                             |
+
 ### Builder (for `use` syntax)
 
 |         Function          |         Description          |
@@ -274,12 +284,12 @@ The `safe_observer` module provides Rx grammar enforcement:
 - [x] `single_subject` - single-subscriber subject
 - [x] Async disposal support
 
-### Phase 3: Combining Operators
+### Phase 3: Combining Operators ✓
 
-- [ ] `merge` - Merge multiple observables
-- [ ] `combine_latest` - Combine latest values
-- [ ] `with_latest_from` - Sample with latest
-- [ ] `zip` - Pair elements by index
+- [x] `merge` - Merge multiple observables
+- [x] `combine_latest` - Combine latest values
+- [x] `with_latest_from` - Sample with latest
+- [x] `zip` - Pair elements by index
 
 ### Phase 4: Advanced Features
 
