@@ -20,6 +20,10 @@ import mist.{type WebsocketConnection, type WebsocketMessage}
 
 const text = "TIME FLIES LIKE AN ARROW"
 
+/// Toggle between sync and async flat_map to compare performance
+/// Change to False to use sync flat_map
+const use_async_flat_map = True
+
 const html = "<!DOCTYPE html>
 <html>
 <head>
@@ -56,10 +60,28 @@ const html = "<!DOCTYPE html>
       color: #0ff;
       font-size: 18px;
     }
+    #stats {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      color: #0ff;
+      font-size: 14px;
+      text-align: right;
+      font-family: monospace;
+    }
+    .stat-value {
+      color: #fff;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <div id=\"title\">ActorX Timeflies Demo</div>
+  <div id=\"stats\">
+    <div>Mode: <span class=\"stat-value\">flat_map_async</span></div>
+    <div>In: <span id=\"in-rate\" class=\"stat-value\">0</span> msg/s</div>
+    <div>Out: <span id=\"out-rate\" class=\"stat-value\">0</span> msg/s</div>
+  </div>
   <div id=\"info\">Move your mouse...</div>
   <div id=\"letters\"></div>
 
@@ -79,6 +101,19 @@ const html = "<!DOCTYPE html>
       letters.push(span);
     }
 
+    // Stats tracking
+    let inCount = 0;
+    let outCount = 0;
+    const inRateEl = document.getElementById('in-rate');
+    const outRateEl = document.getElementById('out-rate');
+
+    setInterval(() => {
+      inRateEl.textContent = inCount;
+      outRateEl.textContent = outCount;
+      inCount = 0;
+      outCount = 0;
+    }, 1000);
+
     // Connect WebSocket
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
@@ -87,6 +122,7 @@ const html = "<!DOCTYPE html>
     };
 
     ws.onmessage = (event) => {
+      inCount++;
       const data = JSON.parse(event.data);
       if (data.index !== undefined && letters[data.index]) {
         letters[data.index].style.left = data.x + 'px';
@@ -104,6 +140,7 @@ const html = "<!DOCTYPE html>
       const now = Date.now();
       if (now - lastSend > 16 && ws.readyState === WebSocket.OPEN) { // ~60fps throttle
         ws.send(JSON.stringify({ x: e.clientX, y: e.clientY }));
+        outCount++;
         lastSend = now;
       }
     });
@@ -186,16 +223,24 @@ fn on_ws_init(
     |> string.to_graphemes
     |> list.index_map(fn(char, i) { #(i, char) })
 
-  let stream =
-    actorx.from_list(letters_with_index)
-    |> actorx.flat_map(fn(pair) {
-      let #(index, _char) = pair
-      mouse_moves
-      |> actorx.delay(80 * index)
-      |> actorx.map(fn(pos: MousePos) {
-        LetterPos(index: index, x: pos.x + index * 14 + 15, y: pos.y)
-      })
+  // Create stream using either sync or async flat_map based on toggle
+  let mapper = fn(pair) {
+    let #(index, _char) = pair
+    mouse_moves
+    |> actorx.delay(80 * index)
+    |> actorx.map(fn(pos: MousePos) {
+      LetterPos(index: index, x: pos.x + index * 14 + 15, y: pos.y)
     })
+  }
+
+  let stream = case use_async_flat_map {
+    True ->
+      actorx.from_list(letters_with_index)
+      |> actorx.flat_map_async(mapper)
+    False ->
+      actorx.from_list(letters_with_index)
+      |> actorx.flat_map(mapper)
+  }
 
   // Create a subject to receive transformed positions
   let output_subject: Subject(LetterPos) = process.new_subject()

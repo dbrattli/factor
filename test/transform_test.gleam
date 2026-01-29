@@ -1,7 +1,9 @@
 //// Tests for transform operators (map, flat_map, concat_map)
 
 import actorx
-import actorx/types.{OnCompleted, OnNext}
+import actorx/types.{type Notification, Observer, OnCompleted, OnError, OnNext}
+import gleam/erlang/process.{type Subject}
+import gleam/list
 import gleeunit/should
 import test_utils.{
   get_bool_ref, get_list_ref, get_notifications, make_bool_ref, make_list_ref,
@@ -345,4 +347,111 @@ pub fn concat_map_to_single_test() {
 
   get_list_ref(results) |> should.equal([100, 200, 300])
   get_bool_ref(completed) |> should.equal(True)
+}
+
+// ============================================================================
+// flat_map_async tests (use message-based collection for async)
+// ============================================================================
+
+fn message_observer(subj: Subject(Notification(a))) -> types.Observer(a) {
+  Observer(notify: fn(n) { process.send(subj, n) })
+}
+
+fn collect_messages(
+  subj: Subject(Notification(a)),
+  timeout_ms: Int,
+) -> #(List(a), Bool, List(String)) {
+  collect_messages_loop(subj, timeout_ms, [], False, [])
+}
+
+fn collect_messages_loop(
+  subj: Subject(Notification(a)),
+  timeout_ms: Int,
+  values: List(a),
+  completed: Bool,
+  errors: List(String),
+) -> #(List(a), Bool, List(String)) {
+  let selector =
+    process.new_selector()
+    |> process.select(subj)
+
+  case process.selector_receive(selector, timeout_ms) {
+    Ok(OnNext(x)) ->
+      collect_messages_loop(
+        subj,
+        timeout_ms,
+        list.append(values, [x]),
+        completed,
+        errors,
+      )
+    Ok(OnCompleted) -> #(values, True, errors)
+    Ok(OnError(e)) -> #(values, completed, list.append(errors, [e]))
+    Error(_) -> #(values, completed, errors)
+  }
+}
+
+pub fn flat_map_async_flattens_observables_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+
+  let observable =
+    actorx.from_list([1, 2, 3])
+    |> actorx.flat_map_async(fn(x) { actorx.single(x * 10) })
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  let #(values, completed, _errors) = collect_messages(result_subject, 100)
+
+  values |> should.equal([10, 20, 30])
+  completed |> should.be_true()
+}
+
+pub fn flat_map_async_empty_source_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+
+  let observable: actorx.Observable(Int) =
+    actorx.empty()
+    |> actorx.flat_map_async(fn(x) { actorx.single(x) })
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  let #(values, completed, _errors) = collect_messages(result_subject, 100)
+
+  values |> should.equal([])
+  completed |> should.be_true()
+}
+
+pub fn flat_map_async_expands_to_multiple_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+
+  let observable =
+    actorx.from_list([1, 2])
+    |> actorx.flat_map_async(fn(x) { actorx.from_list([x, x * 10]) })
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  let #(values, completed, _errors) = collect_messages(result_subject, 100)
+
+  // Each element expands to [x, x*10]
+  values |> should.equal([1, 10, 2, 20])
+  completed |> should.be_true()
+}
+
+pub fn flat_map_async_waits_for_all_inners_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+
+  // Source completes immediately but inners have delays
+  let observable =
+    actorx.from_list([1, 2])
+    |> actorx.flat_map_async(fn(x) {
+      actorx.timer(30)
+      |> actorx.map(fn(_) { x * 10 })
+    })
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  // Collect - should wait for timers
+  let #(values, completed, _errors) = collect_messages(result_subject, 200)
+
+  values |> should.equal([10, 20])
+  completed |> should.be_true()
 }
