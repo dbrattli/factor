@@ -101,8 +101,10 @@ pub fn publish_late_subscriber_misses_earlier_values_test() {
   // Second subscriber misses early values (0, 1 already emitted)
   // Should get remaining values (2, 3) or subset thereof
   should.be_true(
-    values2 == [2, 3] || values2 == [3] || values2 == [1, 2, 3] || values2
-    == [2],
+    values2 == [2, 3]
+    || values2 == [3]
+    || values2 == [1, 2, 3]
+    || values2 == [2],
   )
 }
 

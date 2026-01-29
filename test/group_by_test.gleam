@@ -34,18 +34,19 @@ pub fn group_by_basic_test() {
 
   // Should have two groups: even and odd
   // Order depends on which group completes first
-  let sorted = list.sort(values, fn(a, b) {
-    let #(k1, _) = a
-    let #(k2, _) = b
-    case k1 < k2 {
-      True -> order.Lt
-      False ->
-        case k1 > k2 {
-          True -> order.Gt
-          False -> order.Eq
-        }
-    }
-  })
+  let sorted =
+    list.sort(values, fn(a, b) {
+      let #(k1, _) = a
+      let #(k2, _) = b
+      case k1 < k2 {
+        True -> order.Lt
+        False ->
+          case k1 > k2 {
+            True -> order.Gt
+            False -> order.Eq
+          }
+      }
+    })
 
   sorted
   |> should.equal([#(0, [2, 4, 6]), #(1, [1, 3, 5])])
@@ -190,8 +191,7 @@ pub fn group_by_preserves_order_within_group_test() {
 }
 
 pub fn group_by_with_timer_test() {
-  let result_subject: Subject(Notification(#(Int, Int))) =
-    process.new_subject()
+  let result_subject: Subject(Notification(#(Int, Int))) = process.new_subject()
 
   // Group interval values by mod 2
   let observable =

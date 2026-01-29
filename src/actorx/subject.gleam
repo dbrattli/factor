@@ -560,9 +560,7 @@ fn share_loop(
             None -> {
               // Previous source completed, start fresh
               let source_observer =
-                Observer(notify: fn(n) {
-                  process.send(control, ShareNotify(n))
-                })
+                Observer(notify: fn(n) { process.send(control, ShareNotify(n)) })
               let Observable(subscribe) = source
               #(Some(subscribe(source_observer)), True)
             }
@@ -575,9 +573,7 @@ fn share_loop(
             None -> {
               // First subscriber, connect
               let source_observer =
-                Observer(notify: fn(n) {
-                  process.send(control, ShareNotify(n))
-                })
+                Observer(notify: fn(n) { process.send(control, ShareNotify(n)) })
               let Observable(subscribe) = source
               #(Some(subscribe(source_observer)), False)
             }
@@ -630,7 +626,11 @@ fn share_loop(
       share_loop(
         control,
         source,
-        ShareState(..state, subscribers: new_subscribers, source_disposable: new_source_disp),
+        ShareState(
+          ..state,
+          subscribers: new_subscribers,
+          source_disposable: new_source_disp,
+        ),
       )
     }
     ShareNotify(n) -> {

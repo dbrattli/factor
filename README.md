@@ -147,14 +147,16 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 
 ### Transform
 
-|          Operator           |                   Description                   |
-| --------------------------- | ----------------------------------------------- |
-| `map(source, fn)`           | Transform each element                          |
-| `flat_map(source, fn)`      | Map to observables, merge results (actor-based) |
-| `concat_map(source, fn)`    | Map to observables, concatenate in order        |
-| `scan(source, init, fn)`    | Running accumulation, emit each step            |
-| `reduce(source, init, fn)`  | Final accumulation, emit on completion          |
-| `group_by(source, fn)`      | Group elements into sub-observables by key      |
+| Operator | Description |
+| --- | --- |
+| `map(source, fn)` | Transform each element |
+| `flat_map(source, fn)` | Map to observables, merge results (= map + merge_inner) |
+| `concat_map(source, fn)` | Map to observables, concatenate in order (= map + concat_inner) |
+| `merge_inner(source)` | Flatten Observable(Observable(a)) by merging |
+| `concat_inner(source)` | Flatten Observable(Observable(a)) in order |
+| `scan(source, init, fn)` | Running accumulation, emit each step |
+| `reduce(source, init, fn)` | Final accumulation, emit on completion |
+| `group_by(source, fn)` | Group elements into sub-observables by key |
 
 ### Filter
 
@@ -266,6 +268,24 @@ ActorX uses two complementary approaches for state management:
 - Communication via message passing with Gleam `Subject`
 - Proper disposal via control messages to workers
 - Safe across async boundaries
+
+### Compositional Design
+
+Higher-order operators are composed from primitives, following the standard Rx pattern:
+
+```gleam
+// flat_map = map + merge_inner
+pub fn flat_map(source, mapper) {
+  source |> map(mapper) |> merge_inner()
+}
+
+// concat_map = map + concat_inner
+pub fn concat_map(source, mapper) {
+  source |> map(mapper) |> concat_inner()
+}
+```
+
+This enables building new operators (like `switch_map = map + switch_inner`) from reusable primitives.
 
 ### Safe Observer
 

@@ -2,7 +2,10 @@
 ////
 //// These operators transform the elements of an observable sequence:
 //// - map: Apply a function to each element
-//// - flat_map: Map to observables and flatten (actor-based)
+//// - flat_map: Map to observables and flatten (= map + merge_inner)
+//// - concat_map: Map to observables and concatenate (= map + concat_inner)
+//// - merge_inner: Flatten Observable(Observable(a)) by merging
+//// - concat_inner: Flatten Observable(Observable(a)) by concatenating
 //// - scan: Running accumulation
 //// - reduce: Final accumulation on completion
 //// - group_by: Group elements into sub-observables by key
@@ -36,34 +39,374 @@ pub fn map(source: Observable(a), mapper: fn(a) -> b) -> Observable(b) {
 }
 
 // ============================================================================
-// flat_map - Actor-based flat_map
+// merge_inner - Flatten Observable(Observable(a)) by merging
 // ============================================================================
 
-/// Messages for the flat_map coordinator actor
-type FlatMapMsg(b) {
-  /// Source emitted a value (inner observable to subscribe to)
-  InnerSubscribe(Observable(b))
+/// Messages for the merge_inner coordinator actor
+type MergeInnerMsg(a) {
+  /// Outer emitted an inner observable to subscribe to
+  MergeInnerSubscribe(Observable(a))
   /// Inner observable emitted a value
-  InnerNext(b)
+  MergeInnerNext(a)
   /// Inner observable completed
-  InnerCompleted
+  MergeInnerCompleted
   /// Inner observable errored
-  InnerError(String)
-  /// Source completed
-  SourceCompleted
-  /// Source errored
-  SourceError(String)
+  MergeInnerError(String)
+  /// Outer completed
+  MergeOuterCompleted
+  /// Outer errored
+  MergeOuterError(String)
   /// Dispose all subscriptions
-  FlatMapDispose
+  MergeInnerDispose
 }
+
+/// Flattens an Observable of Observables by merging inner emissions.
+///
+/// Subscribes to each inner observable as it arrives and forwards all
+/// emissions. Completes only when the outer source AND all inner
+/// observables have completed.
+///
+/// ## Example
+/// ```gleam
+/// // Flatten a stream of streams
+/// source_of_sources
+/// |> merge_inner()
+/// ```
+pub fn merge_inner(source: Observable(Observable(a))) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(MergeInnerMsg(a))) =
+      process.new_subject()
+
+    // Spawn coordinator actor
+    process.spawn(fn() {
+      let control: Subject(MergeInnerMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      merge_inner_loop(control, downstream, 0, False)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create merge_inner"
+    }
+
+    // Subscribe to outer source
+    let outer_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(inner) -> process.send(control, MergeInnerSubscribe(inner))
+          OnError(e) -> process.send(control, MergeOuterError(e))
+          OnCompleted -> process.send(control, MergeOuterCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let outer_disp = subscribe(outer_observer)
+
+    // Return disposable that cleans up everything
+    Disposable(dispose: fn() {
+      let Disposable(dispose_outer) = outer_disp
+      dispose_outer()
+      process.send(control, MergeInnerDispose)
+      Nil
+    })
+  })
+}
+
+fn merge_inner_loop(
+  control: Subject(MergeInnerMsg(a)),
+  downstream: fn(Notification(a)) -> Nil,
+  inner_count: Int,
+  outer_stopped: Bool,
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    MergeInnerSubscribe(inner_observable) -> {
+      // Subscribe to inner observable
+      let inner_observer =
+        Observer(notify: fn(n) {
+          case n {
+            OnNext(value) -> process.send(control, MergeInnerNext(value))
+            OnError(e) -> process.send(control, MergeInnerError(e))
+            OnCompleted -> process.send(control, MergeInnerCompleted)
+          }
+        })
+
+      let Observable(inner_subscribe) = inner_observable
+      let _inner_disp = inner_subscribe(inner_observer)
+
+      merge_inner_loop(control, downstream, inner_count + 1, outer_stopped)
+    }
+
+    MergeInnerNext(value) -> {
+      downstream(OnNext(value))
+      merge_inner_loop(control, downstream, inner_count, outer_stopped)
+    }
+
+    MergeInnerCompleted -> {
+      let new_count = inner_count - 1
+      case outer_stopped && new_count <= 0 {
+        True -> {
+          // Outer done and all inners done - complete
+          downstream(OnCompleted)
+          Nil
+        }
+        False -> merge_inner_loop(control, downstream, new_count, outer_stopped)
+      }
+    }
+
+    MergeInnerError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    MergeOuterCompleted -> {
+      case inner_count <= 0 {
+        True -> {
+          // No active inners - complete immediately
+          downstream(OnCompleted)
+          Nil
+        }
+        False -> {
+          // Wait for inners to complete
+          merge_inner_loop(control, downstream, inner_count, True)
+        }
+      }
+    }
+
+    MergeOuterError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    MergeInnerDispose -> Nil
+  }
+}
+
+// ============================================================================
+// concat_inner - Flatten Observable(Observable(a)) by concatenating
+// ============================================================================
+
+/// Messages for the concat_inner coordinator actor
+type ConcatInnerMsg(a) {
+  /// Outer emitted an inner observable to queue
+  ConcatInnerEnqueue(Observable(a))
+  /// Inner observable emitted a value
+  ConcatInnerNext(a)
+  /// Inner observable completed
+  ConcatInnerCompleted
+  /// Inner observable errored
+  ConcatInnerError(String)
+  /// Outer completed
+  ConcatOuterCompleted
+  /// Outer errored
+  ConcatOuterError(String)
+  /// Dispose all subscriptions
+  ConcatInnerDispose
+}
+
+/// State for concat_inner actor
+/// Uses a list as a queue (append to end, take from front)
+type ConcatInnerState(a) {
+  ConcatInnerState(
+    queue: List(Observable(a)),
+    active: Bool,
+    outer_stopped: Bool,
+  )
+}
+
+/// Flattens an Observable of Observables by concatenating in order.
+///
+/// Subscribes to each inner observable only after the previous one
+/// completes. Queues inner observables and processes them sequentially.
+///
+/// ## Example
+/// ```gleam
+/// // Flatten a stream of streams in order
+/// source_of_sources
+/// |> concat_inner()
+/// ```
+pub fn concat_inner(source: Observable(Observable(a))) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(downstream) = observer
+
+    // Create control channel
+    let control_ready: Subject(Subject(ConcatInnerMsg(a))) =
+      process.new_subject()
+
+    // Spawn coordinator actor
+    process.spawn(fn() {
+      let control: Subject(ConcatInnerMsg(a)) = process.new_subject()
+      process.send(control_ready, control)
+      let initial_state =
+        ConcatInnerState(queue: [], active: False, outer_stopped: False)
+      concat_inner_loop(control, downstream, initial_state)
+    })
+
+    // Get control subject
+    let control = case process.receive(control_ready, 1000) {
+      Ok(s) -> s
+      Error(_) -> panic as "Failed to create concat_inner"
+    }
+
+    // Subscribe to outer source
+    let outer_observer =
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(inner) -> process.send(control, ConcatInnerEnqueue(inner))
+          OnError(e) -> process.send(control, ConcatOuterError(e))
+          OnCompleted -> process.send(control, ConcatOuterCompleted)
+        }
+      })
+
+    let Observable(subscribe) = source
+    let outer_disp = subscribe(outer_observer)
+
+    // Return disposable
+    Disposable(dispose: fn() {
+      let Disposable(dispose_outer) = outer_disp
+      dispose_outer()
+      process.send(control, ConcatInnerDispose)
+      Nil
+    })
+  })
+}
+
+fn concat_inner_loop(
+  control: Subject(ConcatInnerMsg(a)),
+  downstream: fn(Notification(a)) -> Nil,
+  state: ConcatInnerState(a),
+) -> Nil {
+  let selector =
+    process.new_selector()
+    |> process.select(control)
+
+  case process.selector_receive_forever(selector) {
+    ConcatInnerEnqueue(inner) -> {
+      case state.active {
+        True -> {
+          // Already processing an inner, queue this one (append to end)
+          let new_queue = list.append(state.queue, [inner])
+          concat_inner_loop(
+            control,
+            downstream,
+            ConcatInnerState(..state, queue: new_queue),
+          )
+        }
+        False -> {
+          // No active inner, subscribe immediately
+          subscribe_to_inner(control, inner)
+          concat_inner_loop(
+            control,
+            downstream,
+            ConcatInnerState(..state, active: True),
+          )
+        }
+      }
+    }
+
+    ConcatInnerNext(value) -> {
+      downstream(OnNext(value))
+      concat_inner_loop(control, downstream, state)
+    }
+
+    ConcatInnerCompleted -> {
+      // Current inner completed, try to process next in queue
+      case state.queue {
+        [next_inner, ..remaining] -> {
+          subscribe_to_inner(control, next_inner)
+          concat_inner_loop(
+            control,
+            downstream,
+            ConcatInnerState(..state, queue: remaining, active: True),
+          )
+        }
+        [] -> {
+          // Queue empty
+          case state.outer_stopped {
+            True -> {
+              // Outer done and no more inners - complete
+              downstream(OnCompleted)
+              Nil
+            }
+            False -> {
+              // Wait for more inners
+              concat_inner_loop(
+                control,
+                downstream,
+                ConcatInnerState(..state, active: False),
+              )
+            }
+          }
+        }
+      }
+    }
+
+    ConcatInnerError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    ConcatOuterCompleted -> {
+      case state.active || !list.is_empty(state.queue) {
+        True -> {
+          // Still processing or have queued inners
+          concat_inner_loop(
+            control,
+            downstream,
+            ConcatInnerState(..state, outer_stopped: True),
+          )
+        }
+        False -> {
+          // No active inner and queue empty - complete
+          downstream(OnCompleted)
+          Nil
+        }
+      }
+    }
+
+    ConcatOuterError(e) -> {
+      downstream(OnError(e))
+      Nil
+    }
+
+    ConcatInnerDispose -> Nil
+  }
+}
+
+fn subscribe_to_inner(
+  control: Subject(ConcatInnerMsg(a)),
+  inner: Observable(a),
+) -> Nil {
+  let inner_observer =
+    Observer(notify: fn(n) {
+      case n {
+        OnNext(value) -> process.send(control, ConcatInnerNext(value))
+        OnError(e) -> process.send(control, ConcatInnerError(e))
+        OnCompleted -> process.send(control, ConcatInnerCompleted)
+      }
+    })
+
+  let Observable(inner_subscribe) = inner
+  let _inner_disp = inner_subscribe(inner_observer)
+  Nil
+}
+
+// ============================================================================
+// flat_map - Composed from map + merge_inner
+// ============================================================================
 
 /// Projects each element of an observable sequence into an observable
 /// sequence and merges the resulting observable sequences.
 ///
-/// Uses an actor to coordinate inner subscriptions, making it safe for
-/// both sync and async sources. It properly tracks all inner subscriptions
-/// and only completes when both the source AND all inner observables have
-/// completed.
+/// This is composed from `map` and `merge_inner`:
+/// `flat_map(source, f) = source |> map(f) |> merge_inner()`
 ///
 /// ## Example
 /// ```gleam
@@ -75,132 +418,36 @@ pub fn flat_map(
   source: Observable(a),
   mapper: fn(a) -> Observable(b),
 ) -> Observable(b) {
-  Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(downstream) = observer
-
-    // Create control channel
-    let control_ready: Subject(Subject(FlatMapMsg(b))) = process.new_subject()
-
-    // Spawn coordinator actor
-    process.spawn(fn() {
-      let control: Subject(FlatMapMsg(b)) = process.new_subject()
-      process.send(control_ready, control)
-      flat_map_loop(control, downstream, 0, False)
-    })
-
-    // Get control subject
-    let control = case process.receive(control_ready, 1000) {
-      Ok(s) -> s
-      Error(_) -> panic as "Failed to create flat_map"
-    }
-
-    // Subscribe to source
-    let source_observer =
-      Observer(notify: fn(n) {
-        case n {
-          OnNext(x) -> {
-            let inner = mapper(x)
-            process.send(control, InnerSubscribe(inner))
-          }
-          OnError(e) -> process.send(control, SourceError(e))
-          OnCompleted -> process.send(control, SourceCompleted)
-        }
-      })
-
-    let Observable(subscribe) = source
-    let source_disp = subscribe(source_observer)
-
-    // Return disposable that cleans up everything
-    Disposable(dispose: fn() {
-      let Disposable(dispose_source) = source_disp
-      dispose_source()
-      process.send(control, FlatMapDispose)
-      Nil
-    })
-  })
+  source
+  |> map(mapper)
+  |> merge_inner()
 }
 
-fn flat_map_loop(
-  control: Subject(FlatMapMsg(b)),
-  downstream: fn(types.Notification(b)) -> Nil,
-  inner_count: Int,
-  source_stopped: Bool,
-) -> Nil {
-  let selector =
-    process.new_selector()
-    |> process.select(control)
-
-  case process.selector_receive_forever(selector) {
-    InnerSubscribe(inner_observable) -> {
-      // Subscribe to inner observable
-      let inner_observer =
-        Observer(notify: fn(n) {
-          case n {
-            OnNext(value) -> process.send(control, InnerNext(value))
-            OnError(e) -> process.send(control, InnerError(e))
-            OnCompleted -> process.send(control, InnerCompleted)
-          }
-        })
-
-      let Observable(inner_subscribe) = inner_observable
-      let _inner_disp = inner_subscribe(inner_observer)
-
-      flat_map_loop(control, downstream, inner_count + 1, source_stopped)
-    }
-
-    InnerNext(value) -> {
-      downstream(OnNext(value))
-      flat_map_loop(control, downstream, inner_count, source_stopped)
-    }
-
-    InnerCompleted -> {
-      let new_count = inner_count - 1
-      case source_stopped && new_count <= 0 {
-        True -> {
-          // Source done and all inners done - complete
-          downstream(OnCompleted)
-          Nil
-        }
-        False -> flat_map_loop(control, downstream, new_count, source_stopped)
-      }
-    }
-
-    InnerError(e) -> {
-      downstream(OnError(e))
-      Nil
-    }
-
-    SourceCompleted -> {
-      case inner_count <= 0 {
-        True -> {
-          // No active inners - complete immediately
-          downstream(OnCompleted)
-          Nil
-        }
-        False -> {
-          // Wait for inners to complete
-          flat_map_loop(control, downstream, inner_count, True)
-        }
-      }
-    }
-
-    SourceError(e) -> {
-      downstream(OnError(e))
-      Nil
-    }
-
-    FlatMapDispose -> Nil
-  }
-}
+// ============================================================================
+// concat_map - Composed from map + concat_inner
+// ============================================================================
 
 /// Projects each element into an observable and concatenates them in order.
+///
+/// This is composed from `map` and `concat_inner`:
+/// `concat_map(source, f) = source |> map(f) |> concat_inner()`
+///
+/// Unlike `flat_map`, this preserves the order of inner observables.
+/// Each inner observable is fully processed before the next one starts.
+///
+/// ## Example
+/// ```gleam
+/// from_list([1, 2, 3])
+/// |> concat_map(fn(x) { from_list([x, x * 10]) })
+/// // Emits: 1, 10, 2, 20, 3, 30
+/// ```
 pub fn concat_map(
   source: Observable(a),
   mapper: fn(a) -> Observable(b),
 ) -> Observable(b) {
-  // Simplified version - processes inner observables immediately
-  // A full implementation would queue and process sequentially
-  flat_map(source, mapper)
+  source
+  |> map(mapper)
+  |> concat_inner()
 }
 
 // ============================================================================
@@ -456,7 +703,8 @@ pub fn group_by(
     let Observer(downstream) = observer
 
     // Create control channel
-    let control_ready: Subject(Subject(GroupByMsg(k, a))) = process.new_subject()
+    let control_ready: Subject(Subject(GroupByMsg(k, a))) =
+      process.new_subject()
 
     // Spawn actor
     process.spawn(fn() {
@@ -544,7 +792,10 @@ fn group_by_loop(
       let updated_group = case current_group.subscribers {
         [] -> {
           // No subscribers yet, buffer the value
-          GroupState(..current_group, buffer: list.append(current_group.buffer, [value]))
+          GroupState(
+            ..current_group,
+            buffer: list.append(current_group.buffer, [value]),
+          )
         }
         subs -> {
           // Forward to all subscribers

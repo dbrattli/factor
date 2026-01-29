@@ -161,9 +161,8 @@ pub fn map(
 
 /// Project each element to an observable and flatten.
 ///
-/// Uses an actor to coordinate inner subscriptions, making it safe for
-/// both sync and async sources. Properly tracks all inner subscriptions
-/// and only completes when both the source AND all inners have completed.
+/// Composed from `map` and `merge_inner`:
+/// `flat_map(source, f) = source |> map(f) |> merge_inner()`
 pub fn flat_map(
   source: types.Observable(a),
   mapper: fn(a) -> types.Observable(b),
@@ -172,11 +171,36 @@ pub fn flat_map(
 }
 
 /// Project each element to an observable and concatenate in order.
+///
+/// Composed from `map` and `concat_inner`:
+/// `concat_map(source, f) = source |> map(f) |> concat_inner()`
+///
+/// Unlike `flat_map`, this preserves the order of inner observables.
 pub fn concat_map(
   source: types.Observable(a),
   mapper: fn(a) -> types.Observable(b),
 ) -> types.Observable(b) {
   transform.concat_map(source, mapper)
+}
+
+/// Flattens an Observable of Observables by merging inner emissions.
+///
+/// Subscribes to each inner observable as it arrives and forwards all
+/// emissions. Completes when outer AND all inners complete.
+pub fn merge_inner(
+  source: types.Observable(types.Observable(a)),
+) -> types.Observable(a) {
+  transform.merge_inner(source)
+}
+
+/// Flattens an Observable of Observables by concatenating in order.
+///
+/// Subscribes to each inner observable only after the previous one
+/// completes. Queues inner observables and processes them sequentially.
+pub fn concat_inner(
+  source: types.Observable(types.Observable(a)),
+) -> types.Observable(a) {
+  transform.concat_inner(source)
 }
 
 /// Applies an accumulator function over the source, emitting each
