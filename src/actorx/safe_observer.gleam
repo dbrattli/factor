@@ -20,40 +20,31 @@ import actorx/types.{
 /// - Calls disposal on terminal events
 /// - Ignores all events after terminal
 pub fn wrap(observer: Observer(a), disposable: Disposable) -> Observer(a) {
-  let Observer(on_next, on_error, on_completed) = observer
+  let Observer(downstream) = observer
   let Disposable(dispose) = disposable
 
   // Use Erlang process dictionary for stopped state
   let stopped_ref = make_ref(0)
 
-  Observer(
-    on_next: fn(x) {
-      case get_ref(stopped_ref) {
-        0 -> on_next(x)
-        _ -> Nil
-      }
-    },
-    on_error: fn(err) {
-      case get_ref(stopped_ref) {
-        0 -> {
-          set_ref(stopped_ref, 1)
-          dispose()
-          on_error(err)
+  Observer(notify: fn(n) {
+    case get_ref(stopped_ref) {
+      0 ->
+        case n {
+          OnNext(x) -> downstream(OnNext(x))
+          OnError(e) -> {
+            set_ref(stopped_ref, 1)
+            dispose()
+            downstream(OnError(e))
+          }
+          OnCompleted -> {
+            set_ref(stopped_ref, 1)
+            dispose()
+            downstream(OnCompleted)
+          }
         }
-        _ -> Nil
-      }
-    },
-    on_completed: fn() {
-      case get_ref(stopped_ref) {
-        0 -> {
-          set_ref(stopped_ref, 1)
-          dispose()
-          on_completed()
-        }
-        _ -> Nil
-      }
-    },
-  )
+      _ -> Nil
+    }
+  })
 }
 
 /// Create an observer from a notification handler function,
@@ -62,12 +53,7 @@ pub fn from_notify(
   notify: fn(Notification(a)) -> Nil,
   disposable: Disposable,
 ) -> Observer(a) {
-  let observer =
-    Observer(
-      on_next: fn(x) { notify(OnNext(x)) },
-      on_error: fn(err) { notify(OnError(err)) },
-      on_completed: fn() { notify(OnCompleted) },
-    )
+  let observer = Observer(notify: notify)
   wrap(observer, disposable)
 }
 

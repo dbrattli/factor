@@ -10,7 +10,7 @@
 
 import actorx/types.{
   type Disposable, type Observable, type Observer, Observable, Observer,
-  empty_disposable,
+  OnCompleted, OnNext, empty_disposable,
 }
 import gleam/list
 
@@ -22,9 +22,9 @@ pub fn create(subscribe: fn(Observer(a)) -> Disposable) -> Observable(a) {
 /// Returns an observable sequence containing a single element.
 pub fn single(value: a) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, _, on_completed) = observer
-    on_next(value)
-    on_completed()
+    let Observer(notify) = observer
+    notify(OnNext(value))
+    notify(OnCompleted)
     empty_disposable()
   })
 }
@@ -32,8 +32,8 @@ pub fn single(value: a) -> Observable(a) {
 /// Returns an observable sequence with no elements that completes immediately.
 pub fn empty() -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(_, _, on_completed) = observer
-    on_completed()
+    let Observer(notify) = observer
+    notify(OnCompleted)
     empty_disposable()
   })
 }
@@ -46,8 +46,8 @@ pub fn never() -> Observable(a) {
 /// Returns an observable sequence that errors immediately.
 pub fn fail(error: String) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(_, on_error, _) = observer
-    on_error(error)
+    let Observer(notify) = observer
+    notify(types.OnError(error))
     empty_disposable()
   })
 }
@@ -56,9 +56,9 @@ pub fn fail(error: String) -> Observable(a) {
 /// Emits each value in order, then completes.
 pub fn from_list(items: List(a)) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, _, on_completed) = observer
-    list.each(items, on_next)
-    on_completed()
+    let Observer(notify) = observer
+    list.each(items, fn(x) { notify(OnNext(x)) })
+    notify(OnCompleted)
     empty_disposable()
   })
 }

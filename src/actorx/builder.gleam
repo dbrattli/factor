@@ -28,7 +28,10 @@
 //// bind(obs, fn(x) { rest... })
 //// ```
 
-import actorx/types.{type Observable, type Observer, Observable, Observer}
+import actorx/types.{
+  type Observable, type Observer, Observable, Observer, OnCompleted, OnError,
+  OnNext,
+}
 
 /// Bind an observable to a continuation function.
 /// This is `flatMap` with arguments ordered for Gleam's `use` syntax.
@@ -43,27 +46,31 @@ pub fn bind(
   continuation: fn(a) -> Observable(b),
 ) -> Observable(b) {
   Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          // For each value, subscribe to the continuation observable
-          let inner = continuation(x)
-          let Observable(inner_subscribe) = inner
-          let inner_observer =
-            Observer(
-              on_next: on_next,
-              on_error: on_error,
-              // Inner completion doesn't complete outer
-              on_completed: fn() { Nil },
-            )
-          let _ = inner_subscribe(inner_observer)
-          Nil
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> {
+            // For each value, subscribe to the continuation observable
+            let inner = continuation(x)
+            let Observable(inner_subscribe) = inner
+            let inner_observer =
+              Observer(notify: fn(inner_n) {
+                case inner_n {
+                  OnNext(value) -> downstream(OnNext(value))
+                  OnError(e) -> downstream(OnError(e))
+                  // Inner completion doesn't complete outer
+                  OnCompleted -> Nil
+                }
+              })
+            let _ = inner_subscribe(inner_observer)
+            Nil
+          }
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -80,9 +87,9 @@ pub fn bind(
 /// ```
 pub fn return(value: a) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, _, on_completed) = observer
-    on_next(value)
-    on_completed()
+    let Observer(downstream) = observer
+    downstream(OnNext(value))
+    downstream(OnCompleted)
     types.empty_disposable()
   })
 }
@@ -99,24 +106,23 @@ pub fn yield_from(source: Observable(a)) -> Observable(a) {
 }
 
 /// Combine two observables sequentially (concat).
-pub fn combine(
-  first: Observable(a),
-  second: Observable(a),
-) -> Observable(a) {
+pub fn combine(first: Observable(a), second: Observable(a)) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, _on_completed) = observer
+    let Observer(downstream) = observer
 
     let first_observer =
-      Observer(
-        on_next: on_next,
-        on_error: on_error,
-        on_completed: fn() {
-          // When first completes, subscribe to second
-          let Observable(second_subscribe) = second
-          let _ = second_subscribe(observer)
-          Nil
-        },
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> downstream(OnNext(x))
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> {
+            // When first completes, subscribe to second
+            let Observable(second_subscribe) = second
+            let _ = second_subscribe(observer)
+            Nil
+          }
+        }
+      })
 
     let Observable(first_subscribe) = first
     first_subscribe(first_observer)
@@ -131,19 +137,18 @@ pub fn combine(
 /// use x <- map_over(actorx.from_list([1, 2, 3]))
 /// x * 10
 /// ```
-pub fn map_over(
-  source: Observable(a),
-  mapper: fn(a) -> b,
-) -> Observable(b) {
+pub fn map_over(source: Observable(a), mapper: fn(a) -> b) -> Observable(b) {
   Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) { on_next(mapper(x)) },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> downstream(OnNext(mapper(x)))
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -163,19 +168,19 @@ pub fn filter_with(
   predicate: fn(a) -> Bool,
 ) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case predicate(x) {
-            True -> on_next(x)
-            False -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case predicate(x) {
+              True -> downstream(OnNext(x))
+              False -> Nil
+            }
+          _ -> downstream(n)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -192,10 +197,7 @@ pub fn filter_with(
 /// })
 /// // Emits: 10, 20, 30
 /// ```
-pub fn for_each(
-  items: List(a),
-  f: fn(a) -> Observable(b),
-) -> Observable(b) {
+pub fn for_each(items: List(a), f: fn(a) -> Observable(b)) -> Observable(b) {
   case items {
     [] -> empty()
     [head, ..tail] -> combine(f(head), for_each(tail, f))
@@ -205,8 +207,8 @@ pub fn for_each(
 /// Empty observable - completes immediately with no values.
 pub fn empty() -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(_, _, on_completed) = observer
-    on_completed()
+    let Observer(downstream) = observer
+    downstream(OnCompleted)
     types.empty_disposable()
   })
 }

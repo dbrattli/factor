@@ -63,6 +63,54 @@ pub fn example() {
 // Emits: 31, 32, 33 then completes
 ```
 
+## Async Operators
+
+ActorX provides time-based operators for async scenarios:
+
+```gleam
+import actorx
+import actorx/types.{Disposable}
+
+pub fn async_example() {
+  // Emit 0, 1, 2, ... every 100ms
+  let observable = actorx.interval(100)
+    |> actorx.take(5)
+    |> actorx.map(fn(x) { x * 10 })
+
+  let observer = actorx.make_observer(
+    on_next: fn(x) { io.println(int.to_string(x)) },
+    on_error: fn(_) { Nil },
+    on_completed: fn() { io.println("Done!") },
+  )
+
+  let Disposable(dispose) = actorx.subscribe(observable, observer)
+  // Output over 500ms: 0, 10, 20, 30, 40, Done!
+
+  // Can dispose early to cancel
+  // dispose()
+}
+```
+
+### Subject Example
+
+Subjects are both Observers and Observables - push values in, subscribe to receive them:
+
+```gleam
+import actorx
+
+pub fn subject_example() {
+  let #(input, output) = actorx.single_subject()
+
+  // Subscribe to output
+  let _disp = actorx.subscribe(output, my_observer)
+
+  // Push values through input
+  actorx.on_next(input, 1)
+  actorx.on_next(input, 2)
+  actorx.on_completed(input)
+}
+```
+
 ## Core Concepts
 
 ### Observable
@@ -87,46 +135,63 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 
 ### Creation
 
-| Operator | Description |
-|----------|-------------|
-| `single(value)` | Emit single value, then complete |
-| `empty()` | Complete immediately |
-| `never()` | Never emit, never complete |
-| `fail(error)` | Error immediately |
-| `from_list(items)` | Emit all items from list |
-| `defer(factory)` | Create observable lazily on subscribe |
+|      Operator      |              Description              |
+| ------------------ | ------------------------------------- |
+| `single(value)`    | Emit single value, then complete      |
+| `empty()`          | Complete immediately                  |
+| `never()`          | Never emit, never complete            |
+| `fail(error)`      | Error immediately                     |
+| `from_list(items)` | Emit all items from list              |
+| `defer(factory)`   | Create observable lazily on subscribe |
 
 ### Transform
 
-| Operator | Description |
-|----------|-------------|
-| `map(source, fn)` | Transform each element |
-| `flat_map(source, fn)` | Map to observables, merge results |
+|         Operator         |               Description                |
+| ------------------------ | ---------------------------------------- |
+| `map(source, fn)`        | Transform each element                   |
+| `flat_map(source, fn)`   | Map to observables, merge results        |
 | `concat_map(source, fn)` | Map to observables, concatenate in order |
 
 ### Filter
 
-| Operator | Description |
-|----------|-------------|
-| `filter(source, predicate)` | Keep elements matching predicate |
-| `take(source, n)` | Take first N elements |
-| `skip(source, n)` | Skip first N elements |
-| `take_while(source, predicate)` | Take while predicate is true |
-| `skip_while(source, predicate)` | Skip while predicate is true |
-| `choose(source, fn)` | Filter + map via Option |
-| `distinct_until_changed(source)` | Skip consecutive duplicates |
-| `take_until(source, other)` | Take until other observable emits |
-| `take_last(source, n)` | Emit last N elements on completion |
+|             Operator             |            Description             |
+| -------------------------------- | ---------------------------------- |
+| `filter(source, predicate)`      | Keep elements matching predicate   |
+| `take(source, n)`                | Take first N elements              |
+| `skip(source, n)`                | Skip first N elements              |
+| `take_while(source, predicate)`  | Take while predicate is true       |
+| `skip_while(source, predicate)`  | Skip while predicate is true       |
+| `choose(source, fn)`             | Filter + map via Option            |
+| `distinct_until_changed(source)` | Skip consecutive duplicates        |
+| `take_until(source, other)`      | Take until other observable emits  |
+| `take_last(source, n)`           | Emit last N elements on completion |
+
+### Timeshift (Async)
+
+|          Operator          |                  Description                  |
+| -------------------------- | --------------------------------------------- |
+| `timer(delay_ms)`          | Emit `0` after delay, then complete           |
+| `interval(period_ms)`      | Emit 0, 1, 2, ... at regular intervals        |
+| `delay(source, ms)`        | Delay each emission by specified time         |
+| `debounce(source, ms)`     | Emit only after silence period                |
+| `throttle(source, ms)`     | Rate limit to at most one per period          |
+
+### Subject
+
+|      Operator      |                     Description                     |
+| ------------------ | --------------------------------------------------- |
+| `subject()`        | Multicast subject, allows multiple subscribers      |
+| `single_subject()` | Single-subscriber subject, buffers until subscribed |
 
 ### Builder (for `use` syntax)
 
-| Function | Description |
-|----------|-------------|
-| `bind(source, fn)` | FlatMap for `use` syntax |
-| `return(value)` | Lift value into observable |
-| `map_over(source, fn)` | Map for `use` syntax |
-| `filter_with(source, fn)` | Filter for `use` syntax |
-| `for_each(list, fn)` | Iterate list, concat results |
+|         Function          |         Description          |
+| ------------------------- | ---------------------------- |
+| `bind(source, fn)`        | FlatMap for `use` syntax     |
+| `return(value)`           | Lift value into observable   |
+| `map_over(source, fn)`    | Map for `use` syntax         |
+| `filter_with(source, fn)` | Filter for `use` syntax      |
+| `for_each(list, fn)`      | Iterate list, concat results |
 
 ## Design
 
@@ -147,7 +212,7 @@ Gleam on BEAM is a natural fit because:
 
 ### Architecture
 
-```
+```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Observable │────▶│  Operator   │────▶│  Observer   │
 │   (source)  │     │  (transform)│     │  (sink)     │
@@ -164,11 +229,20 @@ Each stateful operator can use an actor to maintain state safely across async bo
 
 ### Current Implementation
 
-The current version uses Erlang's process dictionary for mutable state, which works correctly for **synchronous observables** (like `from_list`). This approach:
+ActorX uses two complementary approaches for state management:
 
-- Is simple and performant for sync sources
+**Synchronous operators** (like `from_list`, `map`, `filter`) use Erlang's process dictionary for mutable state:
+
+- Simple and performant for sync sources
 - Avoids actor overhead for simple cases
 - Works within a single process context
+
+**Asynchronous operators** (like `timer`, `interval`, `delay`, `debounce`, `throttle`) use spawned processes:
+
+- Each operator spawns a worker process that owns its state
+- Communication via message passing with Gleam `Subject`
+- Proper disposal via control messages to workers
+- Safe across async boundaries
 
 ### Safe Observer
 
@@ -180,7 +254,7 @@ The `safe_observer` module provides Rx grammar enforcement:
 
 ## Roadmap
 
-### Phase 1: Core Operators (Current)
+### Phase 1: Core Operators ✓
 
 - [x] Basic types (Observable, Observer, Disposable, Notification)
 - [x] Creation operators (single, empty, never, fail, from_list, defer)
@@ -190,13 +264,15 @@ The `safe_observer` module provides Rx grammar enforcement:
 - [x] Builder module with `use` keyword support
 - [x] Test suite
 
-### Phase 2: Actor-Based Async
+### Phase 2: Actor-Based Async ✓
 
-- [ ] Full actor-based `safe_observer` using `gleam_otp`
-- [ ] `interval` and `timer` operators
-- [ ] `debounce` and `throttle` operators
-- [ ] `delay` operator
-- [ ] Proper async disposal
+- [x] `timer` operator - emit after delay
+- [x] `interval` operator - emit at regular intervals
+- [x] `delay` operator - delay emissions
+- [x] `debounce` operator - emit after silence
+- [x] `throttle` operator - rate limiting
+- [x] `single_subject` - single-subscriber subject
+- [x] Async disposal support
 
 ### Phase 3: Combining Operators
 
@@ -207,7 +283,7 @@ The `safe_observer` module provides Rx grammar enforcement:
 
 ### Phase 4: Advanced Features
 
-- [ ] `Subject` - Hot observable / multicast
+- [x] `subject` - Multicast hot observable
 - [ ] `share` / `publish` - Share subscriptions
 - [ ] `retry` / `catch` - Error handling
 - [ ] `scan` / `reduce` - Aggregation
@@ -216,9 +292,20 @@ The `safe_observer` module provides Rx grammar enforcement:
 
 ### Phase 5: Integration
 
-- [ ] Process-based mapper (`map_process`)
 - [ ] Supervision integration
 - [ ] Telemetry/metrics
+
+## Examples
+
+### Timeflies Demo
+
+A classic Rx demo where letters trail behind your mouse cursor. Demonstrates `subject`, `flat_map`, `delay`, and WebSocket integration with Mist.
+
+```sh
+cd examples/timeflies
+gleam run
+# Open http://localhost:3000
+```
 
 ## Development
 
@@ -234,5 +321,6 @@ MIT
 ## Related Projects
 
 - [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) - Original F# implementation
+- [RxPY](https://github.com/ReactiveX/RxPY) - ReactiveX for Python
 - [Reaxive](https://github.com/alfert/reaxive) - ReactiveX for Elixir
 - [GenStage](https://github.com/elixir-lang/gen_stage) - Elixir's demand-driven streams

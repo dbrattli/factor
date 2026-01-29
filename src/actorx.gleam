@@ -7,7 +7,8 @@
 ////
 //// ```gleam
 //// import actorx
-//// import actorx/types.{Observer}
+//// import gleam/io
+//// import gleam/int
 ////
 //// pub fn main() {
 ////   let observable =
@@ -15,7 +16,7 @@
 ////     |> actorx.map(fn(x) { x * 2 })
 ////     |> actorx.filter(fn(x) { x > 4 })
 ////
-////   let observer = Observer(
+////   let observer = actorx.make_observer(
 ////     on_next: fn(x) { io.println(int.to_string(x)) },
 ////     on_error: fn(err) { io.println("Error: " <> err) },
 ////     on_completed: fn() { io.println("Done!") },
@@ -27,6 +28,8 @@
 
 import actorx/create
 import actorx/filter
+import actorx/subject
+import actorx/timeshift
 import actorx/transform
 import actorx/types
 import gleam/option
@@ -46,6 +49,47 @@ pub type Disposable =
 
 pub type Notification(a) =
   types.Notification(a)
+
+// ============================================================================
+// Observer helpers
+// ============================================================================
+
+/// Create an observer from three callback functions.
+pub fn make_observer(
+  on_next on_next: fn(a) -> Nil,
+  on_error on_error: fn(String) -> Nil,
+  on_completed on_completed: fn() -> Nil,
+) -> types.Observer(a) {
+  types.make_observer(on_next, on_error, on_completed)
+}
+
+/// Create an observer that only handles OnNext events.
+pub fn make_next_observer(on_next: fn(a) -> Nil) -> types.Observer(a) {
+  types.make_next_observer(on_next)
+}
+
+/// Send an OnNext notification to an observer.
+pub fn on_next(observer: types.Observer(a), value: a) -> Nil {
+  types.on_next(observer, value)
+}
+
+/// Send an OnError notification to an observer.
+pub fn on_error(observer: types.Observer(a), error: String) -> Nil {
+  types.on_error(observer, error)
+}
+
+/// Send an OnCompleted notification to an observer.
+pub fn on_completed(observer: types.Observer(a)) -> Nil {
+  types.on_completed(observer)
+}
+
+/// Forward a notification to an observer.
+pub fn notify(
+  observer: types.Observer(a),
+  notification: types.Notification(a),
+) -> Nil {
+  types.notify(observer, notification)
+}
 
 // ============================================================================
 // Subscribe helper
@@ -202,4 +246,59 @@ pub fn take_last(source: types.Observable(a), count: Int) -> types.Observable(a)
 /// Create an empty disposable.
 pub fn empty_disposable() -> types.Disposable {
   types.empty_disposable()
+}
+
+// ============================================================================
+// Timeshift operators
+// ============================================================================
+
+/// Creates an observable that emits `0` after the specified delay, then completes.
+pub fn timer(delay_ms: Int) -> types.Observable(Int) {
+  timeshift.timer(delay_ms)
+}
+
+/// Creates an observable that emits incrementing integers (0, 1, 2, ...)
+/// at regular intervals.
+pub fn interval(period_ms: Int) -> types.Observable(Int) {
+  timeshift.interval(period_ms)
+}
+
+/// Delays each emission from the source observable by the specified time.
+pub fn delay(source: types.Observable(a), ms: Int) -> types.Observable(a) {
+  timeshift.delay(source, ms)
+}
+
+/// Emits a value only after the specified time has passed without
+/// another value being emitted.
+pub fn debounce(source: types.Observable(a), ms: Int) -> types.Observable(a) {
+  timeshift.debounce(source, ms)
+}
+
+/// Rate limits emissions to at most one per specified period.
+pub fn throttle(source: types.Observable(a), ms: Int) -> types.Observable(a) {
+  timeshift.throttle(source, ms)
+}
+
+// ============================================================================
+// Subject operators
+// ============================================================================
+
+/// Creates a multicast subject that allows multiple subscribers.
+///
+/// Returns a tuple of (Observer, Observable) where:
+/// - The Observer side is used to push notifications
+/// - The Observable side can be subscribed to by multiple observers
+///
+/// Unlike single_subject, notifications are NOT buffered.
+pub fn subject() -> #(types.Observer(a), types.Observable(a)) {
+  subject.subject()
+}
+
+/// Creates a single-subscriber subject.
+///
+/// Returns a tuple of (Observer, Observable) where:
+/// - The Observer side is used to push notifications
+/// - The Observable side can be subscribed to (once only!)
+pub fn single_subject() -> #(types.Observer(a), types.Observable(a)) {
+  subject.single_subject()
 }

@@ -8,7 +8,8 @@
 //// state management. For synchronous observables, simplified versions are provided.
 
 import actorx/types.{
-  type Observable, type Observer, Observable, Observer, composite_disposable,
+  type Observable, type Observer, Observable, Observer, OnCompleted, OnError,
+  OnNext, composite_disposable, empty_disposable,
 }
 import gleam/option.{type Option, None, Some}
 
@@ -16,19 +17,19 @@ import gleam/option.{type Option, None, Some}
 /// Only elements for which predicate returns True are emitted.
 pub fn filter(source: Observable(a), predicate: fn(a) -> Bool) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case predicate(x) {
-            True -> on_next(x)
-            False -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case predicate(x) {
+              True -> downstream(n)
+              False -> Nil
+            }
+          _ -> downstream(n)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -37,21 +38,25 @@ pub fn filter(source: Observable(a), predicate: fn(a) -> Bool) -> Observable(a) 
 
 /// Applies a function to each element that returns Option.
 /// Emits Some values, skips None values.
-pub fn choose(source: Observable(a), chooser: fn(a) -> Option(b)) -> Observable(b) {
+pub fn choose(
+  source: Observable(a),
+  chooser: fn(a) -> Option(b),
+) -> Observable(b) {
   Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case chooser(x) {
-            Some(value) -> on_next(value)
-            None -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case chooser(x) {
+              Some(value) -> downstream(OnNext(value))
+              None -> Nil
+            }
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -61,64 +66,73 @@ pub fn choose(source: Observable(a), chooser: fn(a) -> Option(b)) -> Observable(
 /// Returns the first N elements from the source (synchronous version).
 /// For async sources, use the actor-based version.
 pub fn take(source: Observable(a), count: Int) -> Observable(a) {
-  // For synchronous sources, we use a simple counter approach
-  // This works because sync observables emit all values in one call
-  Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
+  // Handle edge case: take(0) completes immediately
+  case count <= 0 {
+    True ->
+      Observable(subscribe: fn(observer: Observer(a)) {
+        let Observer(downstream) = observer
+        downstream(OnCompleted)
+        empty_disposable()
+      })
+    False -> {
+      Observable(subscribe: fn(observer: Observer(a)) {
+        let Observer(downstream) = observer
+        let counter_ref = make_ref(count)
 
-    // Use Erlang reference for mutable counter
-    let counter_ref = make_ref(count)
-
-    let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          let remaining = get_ref(counter_ref)
-          case remaining > 0 {
-            True -> {
-              on_next(x)
-              set_ref(counter_ref, remaining - 1)
-              case remaining - 1 {
-                0 -> on_completed()
-                _ -> Nil
+        let upstream_observer =
+          Observer(notify: fn(n) {
+            case n {
+              OnNext(x) -> {
+                let remaining = get_ref(counter_ref)
+                case remaining > 0 {
+                  True -> {
+                    downstream(OnNext(x))
+                    set_ref(counter_ref, remaining - 1)
+                    case remaining - 1 {
+                      0 -> downstream(OnCompleted)
+                      _ -> Nil
+                    }
+                  }
+                  False -> Nil
+                }
+              }
+              OnError(e) -> downstream(OnError(e))
+              OnCompleted -> {
+                // Only complete if take didn't complete us already
+                case get_ref(counter_ref) > 0 {
+                  True -> downstream(OnCompleted)
+                  False -> Nil
+                }
               }
             }
-            False -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: fn() {
-          // Only complete if take didn't complete us already
-          case get_ref(counter_ref) > 0 {
-            True -> on_completed()
-            False -> Nil
-          }
-        },
-      )
+          })
 
-    let Observable(subscribe) = source
-    subscribe(upstream_observer)
-  })
+        let Observable(subscribe) = source
+        subscribe(upstream_observer)
+      })
+    }
+  }
 }
 
 /// Skips the first N elements from the source.
 pub fn skip(source: Observable(a), count: Int) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let counter_ref = make_ref(count)
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          let remaining = get_ref(counter_ref)
-          case remaining > 0 {
-            True -> set_ref(counter_ref, remaining - 1)
-            False -> on_next(x)
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> {
+            let remaining = get_ref(counter_ref)
+            case remaining > 0 {
+              True -> set_ref(counter_ref, remaining - 1)
+              False -> downstream(OnNext(x))
+            }
           }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+          _ -> downstream(n)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -131,34 +145,32 @@ pub fn take_while(
   predicate: fn(a) -> Bool,
 ) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let stopped_ref = make_ref(0)
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case get_ref(stopped_ref) {
-            0 -> {
-              case predicate(x) {
-                True -> on_next(x)
-                False -> {
-                  set_ref(stopped_ref, 1)
-                  on_completed()
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case get_ref(stopped_ref) {
+              0 ->
+                case predicate(x) {
+                  True -> downstream(OnNext(x))
+                  False -> {
+                    set_ref(stopped_ref, 1)
+                    downstream(OnCompleted)
+                  }
                 }
-              }
+              _ -> Nil
             }
-            _ -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: fn() {
-          case get_ref(stopped_ref) {
-            0 -> on_completed()
-            _ -> Nil
-          }
-        },
-      )
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted ->
+            case get_ref(stopped_ref) {
+              0 -> downstream(OnCompleted)
+              _ -> Nil
+            }
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -171,29 +183,27 @@ pub fn skip_while(
   predicate: fn(a) -> Bool,
 ) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let emitting_ref = make_ref(0)
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case get_ref(emitting_ref) {
-            1 -> on_next(x)
-            _ -> {
-              case predicate(x) {
-                True -> Nil
-                False -> {
-                  set_ref(emitting_ref, 1)
-                  on_next(x)
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case get_ref(emitting_ref) {
+              1 -> downstream(OnNext(x))
+              _ ->
+                case predicate(x) {
+                  True -> Nil
+                  False -> {
+                    set_ref(emitting_ref, 1)
+                    downstream(OnNext(x))
+                  }
                 }
-              }
             }
-          }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+          _ -> downstream(n)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -203,32 +213,30 @@ pub fn skip_while(
 /// Emits elements that are different from the previous element.
 pub fn distinct_until_changed(source: Observable(a)) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let latest_ref = make_option_ref()
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case get_option_ref(latest_ref) {
-            None -> {
-              on_next(x)
-              set_option_ref(latest_ref, Some(x))
-            }
-            Some(prev) -> {
-              case prev == x {
-                True -> Nil
-                False -> {
-                  on_next(x)
-                  set_option_ref(latest_ref, Some(x))
-                }
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case get_option_ref(latest_ref) {
+              None -> {
+                downstream(OnNext(x))
+                set_option_ref(latest_ref, Some(x))
               }
+              Some(prev) ->
+                case prev == x {
+                  True -> Nil
+                  False -> {
+                    downstream(OnNext(x))
+                    set_option_ref(latest_ref, Some(x))
+                  }
+                }
             }
-          }
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+          _ -> downstream(n)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -236,53 +244,50 @@ pub fn distinct_until_changed(source: Observable(a)) -> Observable(a) {
 }
 
 /// Returns elements until the other observable emits.
-pub fn take_until(
-  source: Observable(a),
-  other: Observable(b),
-) -> Observable(a) {
+pub fn take_until(source: Observable(a), other: Observable(b)) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let stopped_ref = make_ref(0)
 
     // Subscribe to 'other'
     let Observable(other_subscribe) = other
     let other_observer =
-      Observer(
-        on_next: fn(_) {
-          case get_ref(stopped_ref) {
-            0 -> {
-              set_ref(stopped_ref, 1)
-              on_completed()
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(_) ->
+            case get_ref(stopped_ref) {
+              0 -> {
+                set_ref(stopped_ref, 1)
+                downstream(OnCompleted)
+              }
+              _ -> Nil
             }
-            _ -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: fn() { Nil },
-      )
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> Nil
+        }
+      })
     let other_disp = other_subscribe(other_observer)
 
     // Subscribe to source
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          case get_ref(stopped_ref) {
-            0 -> on_next(x)
-            _ -> Nil
-          }
-        },
-        on_error: on_error,
-        on_completed: fn() {
-          case get_ref(stopped_ref) {
-            0 -> {
-              set_ref(stopped_ref, 1)
-              on_completed()
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) ->
+            case get_ref(stopped_ref) {
+              0 -> downstream(OnNext(x))
+              _ -> Nil
             }
-            _ -> Nil
-          }
-        },
-      )
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted ->
+            case get_ref(stopped_ref) {
+              0 -> {
+                set_ref(stopped_ref, 1)
+                downstream(OnCompleted)
+              }
+              _ -> Nil
+            }
+        }
+      })
 
     let Observable(subscribe) = source
     let source_disp = subscribe(upstream_observer)
@@ -294,24 +299,25 @@ pub fn take_until(
 /// Returns the last N elements from the source.
 pub fn take_last(source: Observable(a), count: Int) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(on_next, on_error, on_completed) = observer
-
+    let Observer(downstream) = observer
     let buffer_ref = make_list_ref()
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          let buffer = get_list_ref(buffer_ref)
-          let new_buffer = append_and_limit(buffer, x, count)
-          set_list_ref(buffer_ref, new_buffer)
-        },
-        on_error: on_error,
-        on_completed: fn() {
-          let buffer = get_list_ref(buffer_ref)
-          emit_all(buffer, on_next)
-          on_completed()
-        },
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> {
+            let buffer = get_list_ref(buffer_ref)
+            let new_buffer = append_and_limit(buffer, x, count)
+            set_list_ref(buffer_ref, new_buffer)
+          }
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> {
+            let buffer = get_list_ref(buffer_ref)
+            emit_all(buffer, fn(x) { downstream(OnNext(x)) })
+            downstream(OnCompleted)
+          }
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)

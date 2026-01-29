@@ -4,20 +4,25 @@
 //// - map: Apply a function to each element
 //// - flat_map: Map to observables and flatten
 
-import actorx/types.{type Observable, type Observer, Observable, Observer}
+import actorx/types.{
+  type Observable, type Observer, Observable, Observer, OnCompleted, OnError,
+  OnNext,
+}
 
 /// Returns an observable whose elements are the result of invoking
 /// the mapper function on each element of the source.
 pub fn map(source: Observable(a), mapper: fn(a) -> b) -> Observable(b) {
   Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
     let upstream_observer =
-      Observer(
-        on_next: fn(x) { on_next(mapper(x)) },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> downstream(OnNext(mapper(x)))
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)
@@ -31,28 +36,32 @@ pub fn flat_map(
   mapper: fn(a) -> Observable(b),
 ) -> Observable(b) {
   Observable(subscribe: fn(observer: Observer(b)) {
-    let Observer(on_next, on_error, on_completed) = observer
+    let Observer(downstream) = observer
 
-    // Simple implementation: subscribe to each inner immediately
     let upstream_observer =
-      Observer(
-        on_next: fn(x) {
-          let inner_observable = mapper(x)
-          let Observable(inner_subscribe) = inner_observable
+      Observer(notify: fn(n) {
+        case n {
+          OnNext(x) -> {
+            let inner_observable = mapper(x)
+            let Observable(inner_subscribe) = inner_observable
 
-          let inner_observer =
-            Observer(
-              on_next: on_next,
-              on_error: on_error,
-              on_completed: fn() { Nil },
-            )
+            // Inner observer forwards OnNext, ignores inner completion
+            let inner_observer =
+              Observer(notify: fn(inner_n) {
+                case inner_n {
+                  OnNext(value) -> downstream(OnNext(value))
+                  OnError(e) -> downstream(OnError(e))
+                  OnCompleted -> Nil
+                }
+              })
 
-          let _inner_disp = inner_subscribe(inner_observer)
-          Nil
-        },
-        on_error: on_error,
-        on_completed: on_completed,
-      )
+            let _inner_disp = inner_subscribe(inner_observer)
+            Nil
+          }
+          OnError(e) -> downstream(OnError(e))
+          OnCompleted -> downstream(OnCompleted)
+        }
+      })
 
     let Observable(subscribe) = source
     subscribe(upstream_observer)

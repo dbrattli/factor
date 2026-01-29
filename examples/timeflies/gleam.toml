@@ -1,0 +1,15 @@
+name = "timeflies"
+version = "1.0.0"
+description = "Timeflies demo - classic Rx example with ActorX and WebSockets"
+
+[dependencies]
+gleam_stdlib = ">= 0.52.0"
+gleam_erlang = ">= 0.35.0"
+gleam_otp = ">= 0.16.0"
+gleam_http = ">= 3.7.0"
+gleam_json = ">= 2.0.0"
+mist = ">= 4.0.0"
+actorx = { path = "../.." }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
