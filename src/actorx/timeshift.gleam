@@ -707,7 +707,9 @@ fn timeout_loop(
     }
     TimeoutTick -> {
       // Timeout expired - error
-      downstream(OnError("Timeout: no emission within " <> int.to_string(ms) <> "ms"))
+      downstream(OnError(
+        "Timeout: no emission within " <> int.to_string(ms) <> "ms",
+      ))
       Nil
     }
     TimeoutError(e) -> {

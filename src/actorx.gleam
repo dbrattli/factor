@@ -30,10 +30,12 @@ import actorx/combine
 import actorx/create
 import actorx/error
 import actorx/filter
+import actorx/interop
 import actorx/subject
 import actorx/timeshift
 import actorx/transform
 import actorx/types
+import gleam/erlang/process
 import gleam/option
 
 // ============================================================================
@@ -688,4 +690,85 @@ pub fn catch(
   handler: fn(String) -> types.Observable(a),
 ) -> types.Observable(a) {
   error.catch(source, handler)
+}
+
+// ============================================================================
+// Actor interop operators
+// ============================================================================
+
+/// Creates a Subject and Observable pair for bridging actors.
+///
+/// Returns a tuple of (Subject, Observable) where:
+/// - Values sent to the Subject are emitted to all Observable subscribers
+/// - The Observable never completes on its own - use `take_until` for completion
+///
+/// This is useful for having an actor publish events that can be consumed
+/// reactively via the Observable.
+///
+/// ## Example
+/// ```gleam
+/// let #(events_subject, events_observable) = actorx.from_subject()
+///
+/// // Pass subject to a producer actor
+/// let _producer = start_event_producer(events_subject)
+///
+/// // Subscribe to the observable
+/// events_observable
+/// |> actorx.filter(is_high_priority)
+/// |> actorx.take_until(shutdown_signal)
+/// |> actorx.subscribe(alert_observer)
+/// ```
+pub fn from_subject() -> #(process.Subject(a), types.Observable(a)) {
+  interop.from_subject()
+}
+
+/// Sends each emitted value to a Subject while passing through to downstream.
+///
+/// Only OnNext values are sent to the Subject. OnError and OnCompleted
+/// are forwarded downstream but not sent to the Subject.
+///
+/// ## Example
+/// ```gleam
+/// actorx.interval(100)
+/// |> actorx.take(10)
+/// |> actorx.map(fn(n) { Increment(n) })
+/// |> actorx.to_subject(counter_inbox)
+/// |> actorx.subscribe(log_observer)
+/// ```
+pub fn to_subject(
+  source: types.Observable(a),
+  target: process.Subject(a),
+) -> types.Observable(a) {
+  interop.to_subject(source, target)
+}
+
+/// Creates a cold Observable that performs a request-response call to an actor.
+///
+/// Each subscription triggers a new request. The `make_request` function
+/// receives a reply Subject and should return the message to send to the actor.
+///
+/// ## Example
+/// ```gleam
+/// type CounterMsg {
+///   Increment(Int)
+///   GetValue(Subject(Int))
+/// }
+///
+/// // Single call
+/// actorx.call_actor(counter, 1000, GetValue)
+/// |> actorx.subscribe(observer)
+///
+/// // Periodic polling
+/// actorx.interval(1000)
+/// |> actorx.flat_map(fn(_) {
+///   actorx.call_actor(counter, 1000, GetValue)
+/// })
+/// |> actorx.subscribe(value_observer)
+/// ```
+pub fn call_actor(
+  actor_subject: process.Subject(msg),
+  timeout_ms: Int,
+  make_request: fn(process.Subject(response)) -> msg,
+) -> types.Observable(response) {
+  interop.call_actor(actor_subject, timeout_ms, make_request)
 }

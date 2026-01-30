@@ -885,11 +885,7 @@ fn amb_loop(
         None -> {
           // First to emit - this source wins
           downstream(OnNext(value))
-          amb_loop(
-            control,
-            downstream,
-            AmbState(..state, winner: Some(idx)),
-          )
+          amb_loop(control, downstream, AmbState(..state, winner: Some(idx)))
         }
         Some(winner_idx) -> {
           // Only forward from winner
