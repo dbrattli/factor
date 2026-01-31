@@ -4,6 +4,7 @@ import actorx
 import actorx/types.{type Notification}
 import gleam/erlang/process.{type Subject}
 import gleam/list
+import gleam/option.{None, Some}
 import gleeunit/should
 import test_utils.{collect_messages, message_observer}
 
@@ -21,7 +22,7 @@ pub fn merge_inner_basic_test() {
       actorx.from_list([3, 4]),
       actorx.from_list([5, 6]),
     ])
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -50,7 +51,7 @@ pub fn merge_inner_empty_outer_test() {
 
   // Empty outer observable produces empty result
   let empty_outer: actorx.Observable(actorx.Observable(Int)) = actorx.empty()
-  let source = empty_outer |> actorx.merge_inner()
+  let source = empty_outer |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -65,7 +66,7 @@ pub fn merge_inner_empty_inners_test() {
 
   let source =
     actorx.from_list([actorx.empty(), actorx.empty(), actorx.empty()])
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -80,7 +81,7 @@ pub fn merge_inner_single_inner_test() {
 
   let source =
     actorx.single(actorx.from_list([1, 2, 3]))
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -100,7 +101,7 @@ pub fn merge_inner_async_test() {
       actorx.timer(20) |> actorx.map(fn(_) { 2 }),
       actorx.timer(30) |> actorx.map(fn(_) { 3 }),
     ])
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -120,7 +121,7 @@ pub fn merge_inner_error_propagates_test() {
       actorx.fail("inner error"),
       actorx.from_list([3, 4]),
     ])
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
 
   let _ = actorx.subscribe(source, message_observer(result))
 
@@ -267,7 +268,7 @@ pub fn flat_map_is_map_plus_merge_inner_test() {
   let _ =
     source
     |> actorx.map(mapper)
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
     |> actorx.subscribe(message_observer(result2))
 
   let #(values1, completed1, _) = collect_messages(result1, 100)
@@ -441,7 +442,7 @@ pub fn flat_mapi_is_mapi_plus_merge_inner_test() {
   let _ =
     source
     |> actorx.mapi(mapper)
-    |> actorx.merge_inner()
+    |> actorx.merge_inner(None)
     |> actorx.subscribe(message_observer(result2))
 
   let #(values1, completed1, _) = collect_messages(result1, 100)
@@ -503,4 +504,91 @@ pub fn concat_mapi_is_mapi_plus_concat_inner_test() {
   values2 |> should.equal([#(0, 10), #(0, 11), #(1, 20), #(1, 21)])
   completed1 |> should.be_true()
   completed2 |> should.be_true()
+}
+
+// ============================================================================
+// max_concurrency tests
+// ============================================================================
+
+/// merge_inner with max_concurrency=1 should behave like concat_inner
+pub fn merge_inner_max_concurrency_one_equals_concat_test() {
+  let result1: Subject(Notification(Int)) = process.new_subject()
+  let result2: Subject(Notification(Int)) = process.new_subject()
+
+  let source =
+    actorx.from_list([
+      actorx.from_list([1, 2]),
+      actorx.from_list([3, 4]),
+      actorx.from_list([5, 6]),
+    ])
+
+  // Using merge_inner with max_concurrency=1
+  let _ =
+    source
+    |> actorx.merge_inner(Some(1))
+    |> actorx.subscribe(message_observer(result1))
+
+  // Using concat_inner
+  let _ =
+    source
+    |> actorx.concat_inner()
+    |> actorx.subscribe(message_observer(result2))
+
+  let #(values1, completed1, _) = collect_messages(result1, 100)
+  let #(values2, completed2, _) = collect_messages(result2, 100)
+
+  // Both should produce same sequential results
+  values1 |> should.equal([1, 2, 3, 4, 5, 6])
+  values2 |> should.equal([1, 2, 3, 4, 5, 6])
+  completed1 |> should.be_true()
+  completed2 |> should.be_true()
+}
+
+/// merge_inner with max_concurrency should process all values
+pub fn merge_inner_max_concurrency_two_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+
+  let source =
+    actorx.from_list([
+      actorx.from_list([1, 2]),
+      actorx.from_list([3, 4]),
+      actorx.from_list([5, 6]),
+      actorx.from_list([7, 8]),
+    ])
+    |> actorx.merge_inner(Some(2))
+
+  let _ = actorx.subscribe(source, message_observer(result))
+
+  let #(values, completed, _) = collect_messages(result, 100)
+
+  // All values should be present
+  list.length(values) |> should.equal(8)
+  list.sort(values, fn(a, b) {
+    case a < b {
+      True -> order.Lt
+      False ->
+        case a > b {
+          True -> order.Gt
+          False -> order.Eq
+        }
+    }
+  })
+  |> should.equal([1, 2, 3, 4, 5, 6, 7, 8])
+  completed |> should.be_true()
+}
+
+/// merge_inner with max_concurrency should handle empty queue correctly
+pub fn merge_inner_max_concurrency_empty_inners_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+
+  let source =
+    actorx.from_list([actorx.empty(), actorx.empty(), actorx.empty()])
+    |> actorx.merge_inner(Some(2))
+
+  let _ = actorx.subscribe(source, message_observer(result))
+
+  let #(values, completed, _) = collect_messages(result, 100)
+
+  values |> should.equal([])
+  completed |> should.be_true()
 }

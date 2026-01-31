@@ -17,6 +17,7 @@ import actorx/types.{
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 
 /// Returns an observable whose elements are the result of invoking
 /// the mapper function on each element of the source.
@@ -150,19 +151,41 @@ type MergeInnerMsg(a) {
   MergeInnerDispose
 }
 
+/// State for merge_inner actor
+type MergeInnerState(a) {
+  MergeInnerState(
+    inner_count: Int,
+    outer_stopped: Bool,
+    queue: List(Observable(a)),
+    max_concurrency: Option(Int),
+  )
+}
+
 /// Flattens an Observable of Observables by merging inner emissions.
 ///
-/// Subscribes to each inner observable as it arrives and forwards all
-/// emissions. Completes only when the outer source AND all inner
-/// observables have completed.
+/// The `max_concurrency` parameter controls how many inner observables
+/// can be subscribed to concurrently:
+/// - `None` (default): Unlimited concurrency, subscribe to all immediately
+/// - `Some(1)`: Sequential processing (equivalent to concat_inner)
+/// - `Some(n)`: At most n inner observables active at once
+///
+/// Completes only when the outer source AND all inner observables
+/// (including queued ones) have completed.
 ///
 /// ## Example
 /// ```gleam
-/// // Flatten a stream of streams
+/// // Unlimited concurrency (default)
 /// source_of_sources
-/// |> merge_inner()
+/// |> merge_inner(None)
+///
+/// // Limit to 3 concurrent inner subscriptions
+/// source_of_sources
+/// |> merge_inner(Some(3))
 /// ```
-pub fn merge_inner(source: Observable(Observable(a))) -> Observable(a) {
+pub fn merge_inner(
+  source: Observable(Observable(a)),
+  max_concurrency: Option(Int),
+) -> Observable(a) {
   Observable(subscribe: fn(observer: Observer(a)) {
     let Observer(downstream) = observer
 
@@ -174,7 +197,14 @@ pub fn merge_inner(source: Observable(Observable(a))) -> Observable(a) {
     process.spawn(fn() {
       let control: Subject(MergeInnerMsg(a)) = process.new_subject()
       process.send(control_ready, control)
-      merge_inner_loop(control, downstream, 0, False)
+      let initial_state =
+        MergeInnerState(
+          inner_count: 0,
+          outer_stopped: False,
+          queue: [],
+          max_concurrency: max_concurrency,
+        )
+      merge_inner_loop(control, downstream, initial_state)
     })
 
     // Get control subject
@@ -206,11 +236,37 @@ pub fn merge_inner(source: Observable(Observable(a))) -> Observable(a) {
   })
 }
 
+/// Check if we can subscribe to more inner observables
+fn can_subscribe(state: MergeInnerState(a)) -> Bool {
+  case state.max_concurrency {
+    None -> True
+    Some(max) -> state.inner_count < max
+  }
+}
+
+/// Subscribe to an inner observable
+fn subscribe_to_merge_inner(
+  control: Subject(MergeInnerMsg(a)),
+  inner: Observable(a),
+) -> Nil {
+  let inner_observer =
+    Observer(notify: fn(n) {
+      case n {
+        OnNext(value) -> process.send(control, MergeInnerNext(value))
+        OnError(e) -> process.send(control, MergeInnerError(e))
+        OnCompleted -> process.send(control, MergeInnerCompleted)
+      }
+    })
+
+  let Observable(inner_subscribe) = inner
+  let _inner_disp = inner_subscribe(inner_observer)
+  Nil
+}
+
 fn merge_inner_loop(
   control: Subject(MergeInnerMsg(a)),
   downstream: fn(Notification(a)) -> Nil,
-  inner_count: Int,
-  outer_stopped: Bool,
+  state: MergeInnerState(a),
 ) -> Nil {
   let selector =
     process.new_selector()
@@ -218,36 +274,63 @@ fn merge_inner_loop(
 
   case process.selector_receive_forever(selector) {
     MergeInnerSubscribe(inner_observable) -> {
-      // Subscribe to inner observable
-      let inner_observer =
-        Observer(notify: fn(n) {
-          case n {
-            OnNext(value) -> process.send(control, MergeInnerNext(value))
-            OnError(e) -> process.send(control, MergeInnerError(e))
-            OnCompleted -> process.send(control, MergeInnerCompleted)
-          }
-        })
-
-      let Observable(inner_subscribe) = inner_observable
-      let _inner_disp = inner_subscribe(inner_observer)
-
-      merge_inner_loop(control, downstream, inner_count + 1, outer_stopped)
+      case can_subscribe(state) {
+        True -> {
+          // Subscribe immediately
+          subscribe_to_merge_inner(control, inner_observable)
+          merge_inner_loop(
+            control,
+            downstream,
+            MergeInnerState(..state, inner_count: state.inner_count + 1),
+          )
+        }
+        False -> {
+          // Queue for later (append to end to preserve order)
+          let new_queue = list.append(state.queue, [inner_observable])
+          merge_inner_loop(
+            control,
+            downstream,
+            MergeInnerState(..state, queue: new_queue),
+          )
+        }
+      }
     }
 
     MergeInnerNext(value) -> {
       downstream(OnNext(value))
-      merge_inner_loop(control, downstream, inner_count, outer_stopped)
+      merge_inner_loop(control, downstream, state)
     }
 
     MergeInnerCompleted -> {
-      let new_count = inner_count - 1
-      case outer_stopped && new_count <= 0 {
-        True -> {
-          // Outer done and all inners done - complete
-          downstream(OnCompleted)
-          Nil
+      let new_count = state.inner_count - 1
+      // Try to subscribe to next queued observable
+      case state.queue {
+        [next_inner, ..remaining] -> {
+          subscribe_to_merge_inner(control, next_inner)
+          // inner_count stays the same (one finished, one started)
+          merge_inner_loop(
+            control,
+            downstream,
+            MergeInnerState(..state, inner_count: new_count + 1, queue: remaining),
+          )
         }
-        False -> merge_inner_loop(control, downstream, new_count, outer_stopped)
+        [] -> {
+          // No queued observables
+          case state.outer_stopped && new_count <= 0 {
+            True -> {
+              // Outer done, no active inners, no queued - complete
+              downstream(OnCompleted)
+              Nil
+            }
+            False -> {
+              merge_inner_loop(
+                control,
+                downstream,
+                MergeInnerState(..state, inner_count: new_count),
+              )
+            }
+          }
+        }
       }
     }
 
@@ -257,15 +340,19 @@ fn merge_inner_loop(
     }
 
     MergeOuterCompleted -> {
-      case inner_count <= 0 {
+      case state.inner_count <= 0 && list.is_empty(state.queue) {
         True -> {
-          // No active inners - complete immediately
+          // No active inners and no queued - complete immediately
           downstream(OnCompleted)
           Nil
         }
         False -> {
-          // Wait for inners to complete
-          merge_inner_loop(control, downstream, inner_count, True)
+          // Wait for inners to complete (including queued ones)
+          merge_inner_loop(
+            control,
+            downstream,
+            MergeInnerState(..state, outer_stopped: True),
+          )
         }
       }
     }
@@ -283,38 +370,10 @@ fn merge_inner_loop(
 // concat_inner - Flatten Observable(Observable(a)) by concatenating
 // ============================================================================
 
-/// Messages for the concat_inner coordinator actor
-type ConcatInnerMsg(a) {
-  /// Outer emitted an inner observable to queue
-  ConcatInnerEnqueue(Observable(a))
-  /// Inner observable emitted a value
-  ConcatInnerNext(a)
-  /// Inner observable completed
-  ConcatInnerCompleted
-  /// Inner observable errored
-  ConcatInnerError(String)
-  /// Outer completed
-  ConcatOuterCompleted
-  /// Outer errored
-  ConcatOuterError(String)
-  /// Dispose all subscriptions
-  ConcatInnerDispose
-}
-
-/// State for concat_inner actor
-/// Uses a list as a queue (append to end, take from front)
-type ConcatInnerState(a) {
-  ConcatInnerState(
-    queue: List(Observable(a)),
-    active: Bool,
-    outer_stopped: Bool,
-  )
-}
-
 /// Flattens an Observable of Observables by concatenating in order.
 ///
 /// Subscribes to each inner observable only after the previous one
-/// completes. Queues inner observables and processes them sequentially.
+/// completes. This is equivalent to `merge_inner` with `max_concurrency = 1`.
 ///
 /// ## Example
 /// ```gleam
@@ -323,169 +382,7 @@ type ConcatInnerState(a) {
 /// |> concat_inner()
 /// ```
 pub fn concat_inner(source: Observable(Observable(a))) -> Observable(a) {
-  Observable(subscribe: fn(observer: Observer(a)) {
-    let Observer(downstream) = observer
-
-    // Create control channel
-    let control_ready: Subject(Subject(ConcatInnerMsg(a))) =
-      process.new_subject()
-
-    // Spawn coordinator actor
-    process.spawn(fn() {
-      let control: Subject(ConcatInnerMsg(a)) = process.new_subject()
-      process.send(control_ready, control)
-      let initial_state =
-        ConcatInnerState(queue: [], active: False, outer_stopped: False)
-      concat_inner_loop(control, downstream, initial_state)
-    })
-
-    // Get control subject
-    let control = case process.receive(control_ready, 1000) {
-      Ok(s) -> s
-      Error(_) -> panic as "Failed to create concat_inner"
-    }
-
-    // Subscribe to outer source
-    let outer_observer =
-      Observer(notify: fn(n) {
-        case n {
-          OnNext(inner) -> process.send(control, ConcatInnerEnqueue(inner))
-          OnError(e) -> process.send(control, ConcatOuterError(e))
-          OnCompleted -> process.send(control, ConcatOuterCompleted)
-        }
-      })
-
-    let Observable(subscribe) = source
-    let outer_disp = subscribe(outer_observer)
-
-    // Return disposable
-    Disposable(dispose: fn() {
-      let Disposable(dispose_outer) = outer_disp
-      dispose_outer()
-      process.send(control, ConcatInnerDispose)
-      Nil
-    })
-  })
-}
-
-fn concat_inner_loop(
-  control: Subject(ConcatInnerMsg(a)),
-  downstream: fn(Notification(a)) -> Nil,
-  state: ConcatInnerState(a),
-) -> Nil {
-  let selector =
-    process.new_selector()
-    |> process.select(control)
-
-  case process.selector_receive_forever(selector) {
-    ConcatInnerEnqueue(inner) -> {
-      case state.active {
-        True -> {
-          // Already processing an inner, queue this one (append to end)
-          let new_queue = list.append(state.queue, [inner])
-          concat_inner_loop(
-            control,
-            downstream,
-            ConcatInnerState(..state, queue: new_queue),
-          )
-        }
-        False -> {
-          // No active inner, subscribe immediately
-          subscribe_to_inner(control, inner)
-          concat_inner_loop(
-            control,
-            downstream,
-            ConcatInnerState(..state, active: True),
-          )
-        }
-      }
-    }
-
-    ConcatInnerNext(value) -> {
-      downstream(OnNext(value))
-      concat_inner_loop(control, downstream, state)
-    }
-
-    ConcatInnerCompleted -> {
-      // Current inner completed, try to process next in queue
-      case state.queue {
-        [next_inner, ..remaining] -> {
-          subscribe_to_inner(control, next_inner)
-          concat_inner_loop(
-            control,
-            downstream,
-            ConcatInnerState(..state, queue: remaining, active: True),
-          )
-        }
-        [] -> {
-          // Queue empty
-          case state.outer_stopped {
-            True -> {
-              // Outer done and no more inners - complete
-              downstream(OnCompleted)
-              Nil
-            }
-            False -> {
-              // Wait for more inners
-              concat_inner_loop(
-                control,
-                downstream,
-                ConcatInnerState(..state, active: False),
-              )
-            }
-          }
-        }
-      }
-    }
-
-    ConcatInnerError(e) -> {
-      downstream(OnError(e))
-      Nil
-    }
-
-    ConcatOuterCompleted -> {
-      case state.active || !list.is_empty(state.queue) {
-        True -> {
-          // Still processing or have queued inners
-          concat_inner_loop(
-            control,
-            downstream,
-            ConcatInnerState(..state, outer_stopped: True),
-          )
-        }
-        False -> {
-          // No active inner and queue empty - complete
-          downstream(OnCompleted)
-          Nil
-        }
-      }
-    }
-
-    ConcatOuterError(e) -> {
-      downstream(OnError(e))
-      Nil
-    }
-
-    ConcatInnerDispose -> Nil
-  }
-}
-
-fn subscribe_to_inner(
-  control: Subject(ConcatInnerMsg(a)),
-  inner: Observable(a),
-) -> Nil {
-  let inner_observer =
-    Observer(notify: fn(n) {
-      case n {
-        OnNext(value) -> process.send(control, ConcatInnerNext(value))
-        OnError(e) -> process.send(control, ConcatInnerError(e))
-        OnCompleted -> process.send(control, ConcatInnerCompleted)
-      }
-    })
-
-  let Observable(inner_subscribe) = inner
-  let _inner_disp = inner_subscribe(inner_observer)
-  Nil
+  merge_inner(source, Some(1))
 }
 
 // ============================================================================
@@ -496,7 +393,7 @@ fn subscribe_to_inner(
 /// sequence and merges the resulting observable sequences.
 ///
 /// This is composed from `map` and `merge_inner`:
-/// `flat_map(source, f) = source |> map(f) |> merge_inner()`
+/// `flat_map(source, f) = source |> map(f) |> merge_inner(None)`
 ///
 /// ## Example
 /// ```gleam
@@ -510,7 +407,7 @@ pub fn flat_map(
 ) -> Observable(b) {
   source
   |> map(mapper)
-  |> merge_inner()
+  |> merge_inner(None)
 }
 
 // ============================================================================
@@ -547,7 +444,7 @@ pub fn concat_map(
 /// Projects each element and its index into an observable and merges results.
 ///
 /// This is composed from `mapi` and `merge_inner`:
-/// `flat_mapi(source, f) = source |> mapi(f) |> merge_inner()`
+/// `flat_mapi(source, f) = source |> mapi(f) |> merge_inner(None)`
 ///
 /// ## Example
 /// ```gleam
@@ -560,7 +457,7 @@ pub fn flat_mapi(
 ) -> Observable(b) {
   source
   |> mapi(mapper)
-  |> merge_inner()
+  |> merge_inner(None)
 }
 
 // ============================================================================
@@ -956,8 +853,6 @@ pub fn pairwise(source: Observable(a)) -> Observable(#(a, a)) {
     })
   })
 }
-
-import gleam/option.{type Option, None, Some}
 
 fn pairwise_loop(
   control: Subject(PairwiseMsg(a)),

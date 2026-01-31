@@ -224,12 +224,18 @@ pub fn concat_mapi(
 
 /// Flattens an Observable of Observables by merging inner emissions.
 ///
-/// Subscribes to each inner observable as it arrives and forwards all
-/// emissions. Completes when outer AND all inners complete.
+/// The `max_concurrency` parameter controls how many inner observables
+/// can be subscribed to concurrently:
+/// - `None`: Unlimited concurrency, subscribe to all immediately
+/// - `Some(1)`: Sequential processing (equivalent to concat_inner)
+/// - `Some(n)`: At most n inner observables active at once
+///
+/// Completes when outer AND all inners (including queued) complete.
 pub fn merge_inner(
   source: types.Observable(types.Observable(a)),
+  max_concurrency: option.Option(Int),
 ) -> types.Observable(a) {
-  transform.merge_inner(source)
+  transform.merge_inner(source, max_concurrency)
 }
 
 /// Flattens an Observable of Observables by concatenating in order.
