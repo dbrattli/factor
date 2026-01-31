@@ -311,7 +311,11 @@ fn merge_inner_loop(
           merge_inner_loop(
             control,
             downstream,
-            MergeInnerState(..state, inner_count: new_count + 1, queue: remaining),
+            MergeInnerState(
+              ..state,
+              inner_count: new_count + 1,
+              queue: remaining,
+            ),
           )
         }
         [] -> {
