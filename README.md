@@ -3,9 +3,8 @@
 [![Package Version](https://img.shields.io/hexpm/v/actorx)](https://hex.pm/packages/actorx)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/actorx/)
 
-ActorX - Reactive Extensions for Gleam using BEAM actors. A reactive programming library that composes BEAM actors for building asynchronous, event-driven applications.
-
-This is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) to Gleam, targeting the Erlang/BEAM runtime.
+ActorX - Reactive Extensions for Gleam using BEAM actors. A reactive programming library
+for composing BEAM actors and building asynchronous, event-driven applications.
 
 ## Installation
 
@@ -25,8 +24,8 @@ pub fn main() {
   let observable =
     actorx.from_list([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     |> actorx.filter(fn(x) { x % 2 == 0 })  // Keep even numbers
-    |> actorx.map(fn(x) { x * 10 })          // Multiply by 10
-    |> actorx.take(3)                        // Take first 3
+    |> actorx.map(fn(x) { x * 10 })         // Multiply by 10
+    |> actorx.take(3)                       // Take first 3
 
   // Create an observer
   let observer = actorx.make_observer(
@@ -157,8 +156,8 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 | `concat_mapi(source, fn)` | Map with index to observables, concatenate (= mapi + concat_inner) |
 | `switch_map(source, fn)` | Map to observables, switch to latest (= map + switch_inner) |
 | `switch_mapi(source, fn)` | Map with index to observables, switch (= mapi + switch_inner) |
-| `merge_inner(source)` | Flatten Observable(Observable(a)) by merging |
-| `concat_inner(source)` | Flatten Observable(Observable(a)) in order |
+| `merge_inner(source, max)` | Flatten Observable(Observable(a)) with concurrency limit |
+| `concat_inner(source)` | Flatten Observable(Observable(a)) in order (= merge_inner with max=1) |
 | `switch_inner(source)` | Flatten Observable(Observable(a)) by switching to latest |
 | `scan(source, init, fn)` | Running accumulation, emit each step |
 | `reduce(source, init, fn)` | Final accumulation, emit on completion |
@@ -294,16 +293,27 @@ ActorX uses two complementary approaches for state management:
 Higher-order operators are composed from primitives, following the standard Rx pattern:
 
 ```gleam
-// flat_map = map + merge_inner
+// flat_map = map + merge_inner (unlimited concurrency)
 pub fn flat_map(source, mapper) {
-  source |> map(mapper) |> merge_inner()
+  source |> map(mapper) |> merge_inner(None)
 }
 
-// concat_map = map + concat_inner
+// concat_map = map + concat_inner (sequential)
 pub fn concat_map(source, mapper) {
   source |> map(mapper) |> concat_inner()
 }
+
+// concat_inner is merge_inner with max_concurrency=1
+pub fn concat_inner(source) {
+  merge_inner(source, Some(1))
+}
 ```
+
+The `merge_inner` operator accepts a `max_concurrency` parameter:
+
+- `None` - unlimited concurrency (subscribe to all inner observables immediately)
+- `Some(1)` - sequential processing (equivalent to `concat_inner`)
+- `Some(n)` - at most n inner observables active, queue the rest
 
 This enables building new operators (like `switch_map = map + switch_inner`) from reusable primitives.
 
@@ -315,47 +325,68 @@ The `safe_observer` module provides Rx grammar enforcement:
 - Ignores events after terminal
 - Calls disposal on terminal events
 
-## Roadmap
+## Actor Interop
 
-### Phase 1: Core Operators ✓
+ActorX provides operators for bridging between reactive streams and BEAM actors/processes.
 
-- [x] Basic types (Observable, Observer, Disposable, Notification)
-- [x] Creation operators (single, empty, never, fail, from_list, defer)
-- [x] Transform operators (map, flat_map, concat_map)
-- [x] Filter operators (filter, take, skip, take_while, distinct_until_changed, etc.)
-- [x] Safe observer with Rx grammar enforcement
-- [x] Builder module with `use` keyword support
-- [x] Test suite
+### Creating Observables from Subjects
 
-### Phase 2: Actor-Based Async ✓
+```gleam
+import actorx
+import gleam/erlang/process
 
-- [x] `timer` operator - emit after delay
-- [x] `interval` operator - emit at regular intervals
-- [x] `delay` operator - delay emissions
-- [x] `debounce` operator - emit after silence
-- [x] `throttle` operator - rate limiting
-- [x] `single_subject` - single-subscriber subject
-- [x] Async disposal support
+pub fn from_subject_example() {
+  // Create a bridge: process.Subject for pushing, Observable for consuming
+  let #(subject, observable) = actorx.from_subject()
 
-### Phase 3: Combining Operators ✓
+  // Subscribe to the observable
+  let _disp = actorx.subscribe(observable, my_observer)
 
-- [x] `merge` - Merge multiple observables
-- [x] `combine_latest` - Combine latest values
-- [x] `with_latest_from` - Sample with latest
-- [x] `zip` - Pair elements by index
+  // Push values from anywhere (other processes, callbacks, etc.)
+  process.send(subject, 1)
+  process.send(subject, 2)
+  process.send(subject, 3)
+}
+```
 
-### Phase 4: Advanced Features ✓
+### Sending to Actors
 
-- [x] `subject` - Multicast hot observable
-- [x] `scan` / `reduce` - Aggregation
-- [x] `retry` / `catch` - Error handling
-- [x] `share` / `publish` - Share subscriptions
-- [x] `group_by` - Grouped streams
+```gleam
+import actorx
 
-### Phase 5: Integration
+pub fn to_subject_example() {
+  let actor_subject = get_some_actor_subject()
 
-- [ ] Supervision integration
-- [ ] Telemetry/metrics
+  // Forward all emissions to an actor while passing through
+  actorx.interval(100)
+  |> actorx.take(5)
+  |> actorx.to_subject(actor_subject)
+  |> actorx.subscribe(my_observer)
+}
+```
+
+### Request-Response with Actors
+
+```gleam
+import actorx
+
+pub fn call_actor_example() {
+  let actor = get_some_actor()
+
+  // Send request to actor, emit response as observable
+  actorx.call_actor(actor, 1000, GetValue)
+  |> actorx.map(fn(response) { process_response(response) })
+  |> actorx.subscribe(my_observer)
+}
+```
+
+### Interop Operators
+
+|             Operator              |                    Description                     |
+| --------------------------------- | -------------------------------------------------- |
+| `from_subject()`                  | Create Subject/Observable pair for pushing values  |
+| `to_subject(source, subj)`        | Forward emissions to a process.Subject             |
+| `call_actor(actor, timeout, msg)` | Request-response call, emit response as observable |
 
 ## Examples
 

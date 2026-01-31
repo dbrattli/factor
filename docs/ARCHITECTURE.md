@@ -232,11 +232,11 @@ pub fn take(source: Observable(a), count: Int) -> Observable(a) {
 Higher-level operators are composed from primitives:
 
 ```gleam
-// flat_map = map + merge_inner
+// flat_map = map + merge_inner (unlimited concurrency)
 pub fn flat_map(source: Observable(a), mapper: fn(a) -> Observable(b)) -> Observable(b) {
   source
   |> map(mapper)
-  |> merge_inner()
+  |> merge_inner(None)
 }
 
 // concat_map = map + concat_inner
@@ -253,6 +253,8 @@ pub fn switch_map(source: Observable(a), mapper: fn(a) -> Observable(b)) -> Obse
   |> switch_inner()
 }
 ```
+
+Note that `concat_inner` is itself implemented as `merge_inner(source, Some(1))`, making `merge_inner` the unified primitive for all concurrency-controlled flattening.
 
 ## Cold vs Hot Observables
 
@@ -290,6 +292,23 @@ When dealing with `Observable(Observable(a))`, three strategies exist:
 | Merge    | `merge_inner`  | Subscribe to all, forward all emissions |
 | Concat   | `concat_inner` | Process one at a time, preserve order   |
 | Switch   | `switch_inner` | Cancel previous on new arrival          |
+
+### Concurrency Control with merge_inner
+
+`merge_inner` accepts a `max_concurrency` parameter to control how many inner observables can be active simultaneously:
+
+```gleam
+// Unlimited concurrency (subscribe to all immediately)
+source |> merge_inner(None)
+
+// Sequential processing (equivalent to concat_inner)
+source |> merge_inner(Some(1))
+
+// Limited concurrency (at most 3 active at once)
+source |> merge_inner(Some(3))
+```
+
+When at capacity, incoming observables are queued and subscribed to as active ones complete. This unifies merge and concat behavior under a single primitive.
 
 ## Time-Based Operators
 
