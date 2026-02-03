@@ -1,10 +1,13 @@
 # Actor Interop Design Document
 
-This document describes the design for bridging BEAM actors with reactive streams in ActorX, enabling actor orchestration via Rx operators.
+This document describes the design for bridging BEAM actors with reactive streams in
+ActorX, enabling actor orchestration via Rx operators.
 
 ## Overview
 
-ActorX provides reactive streams on the BEAM, but many BEAM applications use OTP actors (processes with Subjects) for state management and concurrency. This module bridges these two paradigms, allowing:
+ActorX provides reactive streams on the BEAM, but many BEAM applications use OTP actors
+(processes with Subjects) for state management and concurrency. This module bridges
+these two paradigms, allowing:
 
 - **Actors as event sources** - Convert OTP Subjects to Observables
 - **Streams driving actors** - Send Observable emissions to actor mailboxes
