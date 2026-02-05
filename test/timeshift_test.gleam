@@ -418,3 +418,98 @@ pub fn throttle_via_actorx_facade_test() {
     _ -> should.fail()
   }
 }
+
+// ============================================================================
+// Timer cancellation on dispose tests
+// ============================================================================
+
+pub fn debounce_dispose_cancels_timer_test() {
+  let subject: Subject(Notification(Int)) = process.new_subject()
+  let observer = message_observer(subject)
+
+  // Use a subject to control when values are emitted
+  let #(input, output) = actorx.subject()
+
+  let Disposable(dispose) =
+    output
+    |> timeshift.debounce(100)
+    |> actorx.subscribe(observer)
+
+  // Send a value - this starts a debounce timer
+  actorx.on_next(input, 42)
+
+  // Dispose before timer fires
+  wait_ms(30)
+  dispose()
+
+  // Wait past when timer would have fired
+  wait_ms(150)
+
+  // Should not have received the debounced value
+  let #(values, _completed, _errors) = collect_messages(subject, 50)
+  values |> should.equal([])
+}
+
+pub fn throttle_dispose_cancels_timer_test() {
+  let subject: Subject(Notification(Int)) = process.new_subject()
+  let observer = message_observer(subject)
+
+  // Use a subject to control when values are emitted
+  let #(input, output) = actorx.subject()
+
+  let Disposable(dispose) =
+    output
+    |> timeshift.throttle(100)
+    |> actorx.subscribe(observer)
+
+  // Send first value - emitted immediately, starts window timer
+  actorx.on_next(input, 1)
+  wait_ms(10)
+
+  // Drain the immediate emission
+  let #(immediate, _, _) = collect_messages(subject, 20)
+  immediate |> should.equal([1])
+
+  // Send second value during window - stored as "latest"
+  actorx.on_next(input, 2)
+
+  // Dispose before window ends
+  wait_ms(30)
+  dispose()
+
+  // Wait past when window timer would have fired
+  wait_ms(150)
+
+  // Should not have received the "latest" value from window end
+  let #(values, _completed, _errors) = collect_messages(subject, 50)
+  values |> should.equal([])
+}
+
+pub fn delay_dispose_cancels_pending_timers_test() {
+  let subject: Subject(Notification(Int)) = process.new_subject()
+  let observer = message_observer(subject)
+
+  // Use a subject to control when values are emitted
+  let #(input, output) = actorx.subject()
+
+  let Disposable(dispose) =
+    output
+    |> timeshift.delay(100)
+    |> actorx.subscribe(observer)
+
+  // Send multiple values - each schedules a delayed emission
+  actorx.on_next(input, 1)
+  actorx.on_next(input, 2)
+  actorx.on_next(input, 3)
+
+  // Dispose before any timers fire
+  wait_ms(30)
+  dispose()
+
+  // Wait past when timers would have fired
+  wait_ms(150)
+
+  // Should not have received any delayed values
+  let #(values, _completed, _errors) = collect_messages(subject, 50)
+  values |> should.equal([])
+}
