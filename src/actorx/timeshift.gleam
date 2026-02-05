@@ -294,7 +294,7 @@ fn delay_worker_init(
     |> process.select(control)
 
   case process.selector_receive_forever(selector) {
-    DelayStart -> delay_worker_loop(control, ms, downstream, 0, False)
+    DelayStart -> delay_worker_loop(control, ms, downstream, 0, False, [])
     DelaySchedule(_) -> delay_worker_init(control, ms, downstream)
     DelayEmit(_) -> delay_worker_init(control, ms, downstream)
     DelayComplete -> Nil
@@ -309,6 +309,7 @@ fn delay_worker_loop(
   downstream: fn(Notification(a)) -> Nil,
   pending: Int,
   source_completed: Bool,
+  pending_timers: List(Timer),
 ) -> Nil {
   let selector =
     process.new_selector()
@@ -316,11 +317,21 @@ fn delay_worker_loop(
 
   case process.selector_receive_forever(selector) {
     DelayStart ->
-      delay_worker_loop(control, ms, downstream, pending, source_completed)
+      delay_worker_loop(
+        control,
+        ms,
+        downstream,
+        pending,
+        source_completed,
+        pending_timers,
+      )
     DelaySchedule(x) -> {
-      // Schedule delayed emission
-      process.send_after(control, ms, DelayEmit(x))
-      delay_worker_loop(control, ms, downstream, pending + 1, source_completed)
+      // Schedule delayed emission and track the timer
+      let timer = process.send_after(control, ms, DelayEmit(x))
+      delay_worker_loop(control, ms, downstream, pending + 1, source_completed, [
+        timer,
+        ..pending_timers
+      ])
     }
     DelayEmit(x) -> {
       downstream(OnNext(x))
@@ -334,17 +345,45 @@ fn delay_worker_loop(
             downstream,
             new_pending,
             source_completed,
+            pending_timers,
           )
       }
     }
     DelayComplete -> {
       case pending {
         0 -> downstream(OnCompleted)
-        _ -> delay_worker_loop(control, ms, downstream, pending, True)
+        _ ->
+          delay_worker_loop(
+            control,
+            ms,
+            downstream,
+            pending,
+            True,
+            pending_timers,
+          )
       }
     }
-    DelayError(e) -> downstream(OnError(e))
-    DelayDispose -> Nil
+    DelayError(e) -> {
+      // Cancel all pending timers on error
+      cancel_all_timers(pending_timers)
+      downstream(OnError(e))
+    }
+    DelayDispose -> {
+      // Cancel all pending timers on dispose
+      cancel_all_timers(pending_timers)
+      Nil
+    }
+  }
+}
+
+/// Cancel all timers in a list
+fn cancel_all_timers(timers: List(Timer)) -> Nil {
+  case timers {
+    [] -> Nil
+    [t, ..rest] -> {
+      process.cancel_timer(t)
+      cancel_all_timers(rest)
+    }
   }
 }
 
@@ -463,6 +502,14 @@ fn debounce_worker_loop(
       }
     }
     DebounceComplete -> {
+      // Cancel timer if any
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
       // Emit pending value if any
       case latest {
         Some(x) -> downstream(OnNext(x))
@@ -470,8 +517,28 @@ fn debounce_worker_loop(
       }
       downstream(OnCompleted)
     }
-    DebounceError(e) -> downstream(OnError(e))
-    DebounceDispose -> Nil
+    DebounceError(e) -> {
+      // Cancel timer if any
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
+      downstream(OnError(e))
+    }
+    DebounceDispose -> {
+      // Cancel pending timer on dispose
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
+      Nil
+    }
   }
 }
 
@@ -544,7 +611,8 @@ fn throttle_worker_init(
     |> process.select(control)
 
   case process.selector_receive_forever(selector) {
-    ThrottleStart -> throttle_worker_loop(control, ms, downstream, False, None)
+    ThrottleStart ->
+      throttle_worker_loop(control, ms, downstream, False, None, None)
     ThrottleValue(_) -> throttle_worker_init(control, ms, downstream)
     ThrottleWindowEnd -> throttle_worker_init(control, ms, downstream)
     ThrottleComplete -> Nil
@@ -559,6 +627,7 @@ fn throttle_worker_loop(
   downstream: fn(Notification(a)) -> Nil,
   in_window: Bool,
   latest: Option(a),
+  current_timer: Option(Timer),
 ) -> Nil {
   let selector =
     process.new_selector()
@@ -566,18 +635,32 @@ fn throttle_worker_loop(
 
   case process.selector_receive_forever(selector) {
     ThrottleStart ->
-      throttle_worker_loop(control, ms, downstream, in_window, latest)
+      throttle_worker_loop(
+        control,
+        ms,
+        downstream,
+        in_window,
+        latest,
+        current_timer,
+      )
     ThrottleValue(x) -> {
       case in_window {
         False -> {
           // Not in window: emit immediately and start window
           downstream(OnNext(x))
-          process.send_after(control, ms, ThrottleWindowEnd)
-          throttle_worker_loop(control, ms, downstream, True, None)
+          let timer = process.send_after(control, ms, ThrottleWindowEnd)
+          throttle_worker_loop(control, ms, downstream, True, None, Some(timer))
         }
         True -> {
           // In window: store as latest
-          throttle_worker_loop(control, ms, downstream, True, Some(x))
+          throttle_worker_loop(
+            control,
+            ms,
+            downstream,
+            True,
+            Some(x),
+            current_timer,
+          )
         }
       }
     }
@@ -587,16 +670,24 @@ fn throttle_worker_loop(
         Some(x) -> {
           // Emit stored value and start new window
           downstream(OnNext(x))
-          process.send_after(control, ms, ThrottleWindowEnd)
-          throttle_worker_loop(control, ms, downstream, True, None)
+          let timer = process.send_after(control, ms, ThrottleWindowEnd)
+          throttle_worker_loop(control, ms, downstream, True, None, Some(timer))
         }
         None -> {
           // No value during window, end throttle window
-          throttle_worker_loop(control, ms, downstream, False, None)
+          throttle_worker_loop(control, ms, downstream, False, None, None)
         }
       }
     }
     ThrottleComplete -> {
+      // Cancel timer if any
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
       // Emit any pending value before completing
       case latest {
         Some(x) -> downstream(OnNext(x))
@@ -604,8 +695,28 @@ fn throttle_worker_loop(
       }
       downstream(OnCompleted)
     }
-    ThrottleError(e) -> downstream(OnError(e))
-    ThrottleDispose -> Nil
+    ThrottleError(e) -> {
+      // Cancel timer if any
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
+      downstream(OnError(e))
+    }
+    ThrottleDispose -> {
+      // Cancel pending timer on dispose
+      case current_timer {
+        Some(t) -> {
+          process.cancel_timer(t)
+          Nil
+        }
+        None -> Nil
+      }
+      Nil
+    }
   }
 }
 
