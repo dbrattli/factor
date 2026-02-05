@@ -1,15 +1,17 @@
 # ActorX for Gleam
 
-[![Package Version](https://img.shields.io/hexpm/v/actorx)](https://hex.pm/packages/actorx)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/actorx/)
+> **⚠️ Experimental / Work in Progress**
+>
+> This library is a learning project exploring Rx patterns on the BEAM. It is **not production-ready** and has known limitations with OTP integration (no process monitoring, no supervision trees).
 
-Actorx - Reactive Extensions for Gleam using BEAM actors. A reactive programming library
-for composing BEAM actors and building asynchronous, event-driven applications.
+ActorX is a Reactive Extensions (Rx) library for Gleam targeting the Erlang/BEAM runtime. It's a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) to Gleam.
 
 ## Installation
 
-```sh
-gleam add actorx
+```toml
+# In gleam.toml
+[dependencies]
+actorx = { git = "https://github.com/dbrattli/actorx", ref = "main" }
 ```
 
 ## Example
@@ -247,47 +249,6 @@ The original F# AsyncRx uses `MailboxProcessor` (actors) to:
 2. Enforce Rx grammar
 3. Manage state safely
 
-Gleam on BEAM is a natural fit because:
-
-- BEAM has native lightweight processes (actors)
-- OTP provides battle-tested actor primitives
-- Millions of concurrent subscriptions are feasible
-- Supervision trees for fault tolerance
-
-### Architecture
-
-```text
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Observable │────▶│  Operator   │────▶│  Observer   │
-│   (source)  │     │  (transform)│     │  (sink)     │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │ State Actor │
-                    │ (for take,  │
-                    │  skip, etc) │
-                    └─────────────┘
-```
-
-Each stateful operator can use an actor to maintain state safely across async boundaries.
-
-### Current Implementation
-
-ActorX uses two complementary approaches for state management:
-
-**Synchronous operators** (like `from_list`, `map`, `filter`) use Erlang's process dictionary for mutable state:
-
-- Simple and performant for sync sources
-- Avoids actor overhead for simple cases
-- Works within a single process context
-
-**Asynchronous operators** (like `timer`, `interval`, `delay`, `debounce`, `throttle`) use spawned processes:
-
-- Each operator spawns a worker process that owns its state
-- Communication via message passing with Gleam `Subject`
-- Proper disposal via control messages to workers
-- Safe across async boundaries
-
 ### Compositional Design
 
 Higher-order operators are composed from primitives, following the standard Rx pattern:
@@ -324,69 +285,6 @@ The `safe_observer` module provides Rx grammar enforcement:
 - Tracks "stopped" state
 - Ignores events after terminal
 - Calls disposal on terminal events
-
-## Actor Interop
-
-ActorX provides operators for bridging between reactive streams and BEAM actors/processes.
-
-### Creating Observables from Subjects
-
-```gleam
-import actorx
-import gleam/erlang/process
-
-pub fn from_subject_example() {
-  // Create a bridge: process.Subject for pushing, Observable for consuming
-  let #(subject, observable) = actorx.from_subject()
-
-  // Subscribe to the observable
-  let _disp = actorx.subscribe(observable, my_observer)
-
-  // Push values from anywhere (other processes, callbacks, etc.)
-  process.send(subject, 1)
-  process.send(subject, 2)
-  process.send(subject, 3)
-}
-```
-
-### Sending to Actors
-
-```gleam
-import actorx
-
-pub fn to_subject_example() {
-  let actor_subject = get_some_actor_subject()
-
-  // Forward all emissions to an actor while passing through
-  actorx.interval(100)
-  |> actorx.take(5)
-  |> actorx.to_subject(actor_subject)
-  |> actorx.subscribe(my_observer)
-}
-```
-
-### Request-Response with Actors
-
-```gleam
-import actorx
-
-pub fn call_actor_example() {
-  let actor = get_some_actor()
-
-  // Send request to actor, emit response as observable
-  actorx.call_actor(actor, 1000, GetValue)
-  |> actorx.map(fn(response) { process_response(response) })
-  |> actorx.subscribe(my_observer)
-}
-```
-
-### Interop Operators
-
-|             Operator              |                    Description                     |
-| --------------------------------- | -------------------------------------------------- |
-| `from_subject()`                  | Create Subject/Observable pair for pushing values  |
-| `to_subject(source, subj)`        | Forward emissions to a process.Subject             |
-| `call_actor(actor, timeout, msg)` | Request-response call, emit response as observable |
 
 ## Examples
 
