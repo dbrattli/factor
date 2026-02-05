@@ -139,8 +139,8 @@ type MergeInnerMsg(a) {
   MergeInnerSubscribe(Observable(a))
   /// Inner observable emitted a value
   MergeInnerNext(a)
-  /// Inner observable completed
-  MergeInnerCompleted
+  /// Inner observable completed (with ID to identify which inner)
+  MergeInnerCompleted(Int)
   /// Inner observable errored
   MergeInnerError(String)
   /// Outer completed
@@ -158,6 +158,8 @@ type MergeInnerState(a) {
     outer_stopped: Bool,
     queue: List(Observable(a)),
     max_concurrency: Option(Int),
+    next_inner_id: Int,
+    inner_disposables: Dict(Int, Disposable),
   )
 }
 
@@ -203,6 +205,8 @@ pub fn merge_inner(
           outer_stopped: False,
           queue: [],
           max_concurrency: max_concurrency,
+          next_inner_id: 1,
+          inner_disposables: dict.new(),
         )
       merge_inner_loop(control, downstream, initial_state)
     })
@@ -244,23 +248,23 @@ fn can_subscribe(state: MergeInnerState(a)) -> Bool {
   }
 }
 
-/// Subscribe to an inner observable
+/// Subscribe to an inner observable and return its disposable
 fn subscribe_to_merge_inner(
   control: Subject(MergeInnerMsg(a)),
   inner: Observable(a),
-) -> Nil {
+  inner_id: Int,
+) -> Disposable {
   let inner_observer =
     Observer(notify: fn(n) {
       case n {
         OnNext(value) -> process.send(control, MergeInnerNext(value))
         OnError(e) -> process.send(control, MergeInnerError(e))
-        OnCompleted -> process.send(control, MergeInnerCompleted)
+        OnCompleted -> process.send(control, MergeInnerCompleted(inner_id))
       }
     })
 
   let Observable(inner_subscribe) = inner
-  let _inner_disp = inner_subscribe(inner_observer)
-  Nil
+  inner_subscribe(inner_observer)
 }
 
 fn merge_inner_loop(
@@ -276,12 +280,21 @@ fn merge_inner_loop(
     MergeInnerSubscribe(inner_observable) -> {
       case can_subscribe(state) {
         True -> {
-          // Subscribe immediately
-          subscribe_to_merge_inner(control, inner_observable)
+          // Subscribe immediately with a unique ID
+          let inner_id = state.next_inner_id
+          let inner_disp =
+            subscribe_to_merge_inner(control, inner_observable, inner_id)
+          let new_disposables =
+            dict.insert(state.inner_disposables, inner_id, inner_disp)
           merge_inner_loop(
             control,
             downstream,
-            MergeInnerState(..state, inner_count: state.inner_count + 1),
+            MergeInnerState(
+              ..state,
+              inner_count: state.inner_count + 1,
+              next_inner_id: inner_id + 1,
+              inner_disposables: new_disposables,
+            ),
           )
         }
         False -> {
@@ -301,12 +314,19 @@ fn merge_inner_loop(
       merge_inner_loop(control, downstream, state)
     }
 
-    MergeInnerCompleted -> {
+    MergeInnerCompleted(completed_id) -> {
       let new_count = state.inner_count - 1
+      // Remove the completed inner's disposable from tracking
+      let new_disposables = dict.delete(state.inner_disposables, completed_id)
       // Try to subscribe to next queued observable
       case state.queue {
         [next_inner, ..remaining] -> {
-          subscribe_to_merge_inner(control, next_inner)
+          // Subscribe to next with a new ID
+          let inner_id = state.next_inner_id
+          let inner_disp =
+            subscribe_to_merge_inner(control, next_inner, inner_id)
+          let updated_disposables =
+            dict.insert(new_disposables, inner_id, inner_disp)
           // inner_count stays the same (one finished, one started)
           merge_inner_loop(
             control,
@@ -315,6 +335,8 @@ fn merge_inner_loop(
               ..state,
               inner_count: new_count + 1,
               queue: remaining,
+              next_inner_id: inner_id + 1,
+              inner_disposables: updated_disposables,
             ),
           )
         }
@@ -330,7 +352,11 @@ fn merge_inner_loop(
               merge_inner_loop(
                 control,
                 downstream,
-                MergeInnerState(..state, inner_count: new_count),
+                MergeInnerState(
+                  ..state,
+                  inner_count: new_count,
+                  inner_disposables: new_disposables,
+                ),
               )
             }
           }
@@ -339,6 +365,12 @@ fn merge_inner_loop(
     }
 
     MergeInnerError(e) -> {
+      // Dispose all active inner subscriptions on error
+      let _ =
+        dict.each(state.inner_disposables, fn(_id, disp) {
+          let Disposable(dispose) = disp
+          dispose()
+        })
       downstream(OnError(e))
       Nil
     }
@@ -362,11 +394,25 @@ fn merge_inner_loop(
     }
 
     MergeOuterError(e) -> {
+      // Dispose all active inner subscriptions on outer error
+      let _ =
+        dict.each(state.inner_disposables, fn(_id, disp) {
+          let Disposable(dispose) = disp
+          dispose()
+        })
       downstream(OnError(e))
       Nil
     }
 
-    MergeInnerDispose -> Nil
+    MergeInnerDispose -> {
+      // Dispose all active inner subscriptions
+      let _ =
+        dict.each(state.inner_disposables, fn(_id, disp) {
+          let Disposable(dispose) = disp
+          dispose()
+        })
+      Nil
+    }
   }
 }
 
@@ -517,6 +563,7 @@ type SwitchInnerState {
     current_id: Int,
     outer_stopped: Bool,
     has_active: Bool,
+    current_disposable: Option(Disposable),
   )
 }
 
@@ -553,6 +600,7 @@ pub fn switch_inner(source: Observable(Observable(a))) -> Observable(a) {
           current_id: 0,
           outer_stopped: False,
           has_active: False,
+          current_disposable: None,
         )
       switch_inner_loop(control, downstream, initial_state)
     })
@@ -597,6 +645,12 @@ fn switch_inner_loop(
 
   case process.selector_receive_forever(selector) {
     SwitchInnerNew(inner_observable) -> {
+      // Dispose previous inner subscription before switching
+      case state.current_disposable {
+        Some(Disposable(dispose_prev)) -> dispose_prev()
+        None -> Nil
+      }
+
       // Assign ID to this inner
       let id = state.next_id
 
@@ -611,9 +665,9 @@ fn switch_inner_loop(
         })
 
       let Observable(inner_subscribe) = inner_observable
-      let _inner_disp = inner_subscribe(inner_observer)
+      let inner_disp = inner_subscribe(inner_observer)
 
-      // Update state - this ID is now current, increment next_id
+      // Update state - this ID is now current, increment next_id, store disposable
       switch_inner_loop(
         control,
         downstream,
@@ -622,6 +676,7 @@ fn switch_inner_loop(
           next_id: id + 1,
           current_id: id,
           has_active: True,
+          current_disposable: Some(inner_disp),
         ),
       )
     }
@@ -647,10 +702,15 @@ fn switch_inner_loop(
             }
             False -> {
               // Wait for more inners or outer completion
+              // Clear the disposable since inner completed naturally
               switch_inner_loop(
                 control,
                 downstream,
-                SwitchInnerState(..state, has_active: False),
+                SwitchInnerState(
+                  ..state,
+                  has_active: False,
+                  current_disposable: None,
+                ),
               )
             }
           }
@@ -660,6 +720,11 @@ fn switch_inner_loop(
     }
 
     SwitchInnerError(e) -> {
+      // Dispose current inner on error (if any)
+      case state.current_disposable {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       downstream(OnError(e))
       Nil
     }
@@ -683,11 +748,23 @@ fn switch_inner_loop(
     }
 
     SwitchOuterError(e) -> {
+      // Dispose current inner on outer error
+      case state.current_disposable {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       downstream(OnError(e))
       Nil
     }
 
-    SwitchInnerDispose -> Nil
+    SwitchInnerDispose -> {
+      // Dispose current inner subscription on dispose
+      case state.current_disposable {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
+      Nil
+    }
   }
 }
 

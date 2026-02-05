@@ -1,7 +1,9 @@
 //// Tests for merge_inner and concat_inner operators
 
 import actorx
-import actorx/types.{type Notification}
+import actorx/types.{
+  type Notification, type Observable, type Observer, Disposable, Observable,
+}
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{None, Some}
@@ -591,4 +593,179 @@ pub fn merge_inner_max_concurrency_empty_inners_test() {
 
   values |> should.equal([])
   completed |> should.be_true()
+}
+
+// ============================================================================
+// Inner disposable tracking tests
+// ============================================================================
+
+/// Message type for tracking disposals
+type DisposeMsg {
+  Disposed
+}
+
+/// Count messages received on a subject within a timeout
+fn count_messages(subj: Subject(DisposeMsg), timeout_ms: Int) -> Int {
+  count_messages_loop(subj, timeout_ms, 0)
+}
+
+fn count_messages_loop(
+  subj: Subject(DisposeMsg),
+  timeout_ms: Int,
+  count: Int,
+) -> Int {
+  let selector =
+    process.new_selector()
+    |> process.select(subj)
+
+  case process.selector_receive(selector, timeout_ms) {
+    Ok(Disposed) -> count_messages_loop(subj, timeout_ms, count + 1)
+    Error(_) -> count
+  }
+}
+
+/// Helper: create an observable that sends a message when disposed
+fn tracked_interval(
+  dispose_tracker: Subject(DisposeMsg),
+  value: Int,
+) -> Observable(Int) {
+  Observable(subscribe: fn(observer: Observer(Int)) {
+    // Start emitting values via interval
+    let inner_source = actorx.interval(50) |> actorx.map(fn(_) { value })
+    let Disposable(inner_dispose) = actorx.subscribe(inner_source, observer)
+
+    // Return a disposable that sends a message when called
+    Disposable(dispose: fn() {
+      process.send(dispose_tracker, Disposed)
+      inner_dispose()
+      Nil
+    })
+  })
+}
+
+/// merge_inner should dispose all active inner subscriptions when disposed
+pub fn merge_inner_dispose_cancels_all_inners_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Create inner observables that track disposal
+  let inner1 = tracked_interval(dispose_tracker, 1)
+  let inner2 = tracked_interval(dispose_tracker, 2)
+  let inner3 = tracked_interval(dispose_tracker, 3)
+
+  let source =
+    actorx.from_list([inner1, inner2, inner3])
+    |> actorx.merge_inner(None)
+
+  let Disposable(dispose) = actorx.subscribe(source, message_observer(result))
+
+  // Wait a bit for subscriptions to be active
+  process.sleep(80)
+
+  // Dispose the outer subscription
+  dispose()
+
+  // Count how many dispose messages we received
+  let dispose_count = count_messages(dispose_tracker, 100)
+
+  // All 3 inner subscriptions should have been disposed
+  dispose_count |> should.equal(3)
+}
+
+/// merge_inner with max_concurrency should dispose active inners when disposed
+pub fn merge_inner_max_concurrency_dispose_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Create 4 inner observables, but only 2 can be active at a time
+  let inners =
+    list.map([1, 2, 3, 4], fn(i) { tracked_interval(dispose_tracker, i) })
+
+  let source =
+    actorx.from_list(inners)
+    |> actorx.merge_inner(Some(2))
+
+  let Disposable(dispose) = actorx.subscribe(source, message_observer(result))
+
+  // Wait a bit - only 2 should be subscribed due to max_concurrency
+  process.sleep(80)
+
+  // Dispose
+  dispose()
+
+  // Count dispose messages
+  let dispose_count = count_messages(dispose_tracker, 100)
+
+  // Only the 2 active subscriptions should be disposed (not the queued ones)
+  dispose_count |> should.equal(2)
+}
+
+/// switch_inner should dispose previous inner when switching to new one
+pub fn switch_inner_disposes_previous_on_switch_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Create a subject to control when inners are emitted
+  let #(outer_input, outer_output) = actorx.subject()
+
+  let source = outer_output |> actorx.switch_inner()
+
+  let Disposable(dispose) = actorx.subscribe(source, message_observer(result))
+
+  // Emit first inner
+  let inner1 = tracked_interval(dispose_tracker, 1)
+  actorx.on_next(outer_input, inner1)
+  process.sleep(30)
+
+  // Check dispose count - should still be 0 (inner1 is active)
+  count_messages(dispose_tracker, 50) |> should.equal(0)
+
+  // Emit second inner - should dispose first
+  let inner2 = tracked_interval(dispose_tracker, 2)
+  actorx.on_next(outer_input, inner2)
+  process.sleep(30)
+
+  // First inner should now be disposed
+  count_messages(dispose_tracker, 50) |> should.equal(1)
+
+  // Emit third inner - should dispose second
+  let inner3 = tracked_interval(dispose_tracker, 3)
+  actorx.on_next(outer_input, inner3)
+  process.sleep(30)
+
+  // Second inner should now be disposed (we should see 1 more message)
+  count_messages(dispose_tracker, 50) |> should.equal(1)
+
+  // Dispose outer - should dispose third inner
+  dispose()
+
+  // Third inner should now be disposed
+  count_messages(dispose_tracker, 50) |> should.equal(1)
+}
+
+/// switch_inner should dispose current inner when outer subscription is disposed
+pub fn switch_inner_dispose_cancels_current_inner_test() {
+  let result: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Create a subject to control when inners are emitted
+  let #(outer_input, outer_output) = actorx.subject()
+
+  let source = outer_output |> actorx.switch_inner()
+
+  let Disposable(dispose) = actorx.subscribe(source, message_observer(result))
+
+  // Emit an inner
+  let inner1 = tracked_interval(dispose_tracker, 1)
+  actorx.on_next(outer_input, inner1)
+  process.sleep(30)
+
+  // Inner should be active, not disposed yet
+  count_messages(dispose_tracker, 50) |> should.equal(0)
+
+  // Dispose outer subscription
+  dispose()
+
+  // Inner should now be disposed
+  count_messages(dispose_tracker, 50) |> should.equal(1)
 }
