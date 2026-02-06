@@ -3,7 +3,10 @@
 //// Based on RxPY test patterns for comprehensive coverage.
 
 import actorx
-import actorx/types.{type Notification, OnCompleted, OnNext}
+import actorx/types.{
+  type Notification, type Observable, type Observer, Disposable, Observable,
+  Observer, OnCompleted, OnError, OnNext,
+}
 import gleam/erlang/process.{type Subject}
 import gleeunit/should
 import test_utils.{collect_messages, collect_notifications, message_observer}
@@ -401,4 +404,259 @@ pub fn catch_then_retry_test() {
   values |> should.equal([42])
   completed |> should.be_true()
   errors |> should.equal([])
+}
+
+// ============================================================================
+// Subscription disposal tracking tests
+// ============================================================================
+
+/// Message type for tracking disposals
+type DisposeMsg {
+  Disposed
+}
+
+/// Count messages received on a subject within a timeout
+fn count_dispose_messages(subj: Subject(DisposeMsg), timeout_ms: Int) -> Int {
+  count_dispose_loop(subj, timeout_ms, 0)
+}
+
+fn count_dispose_loop(
+  subj: Subject(DisposeMsg),
+  timeout_ms: Int,
+  count: Int,
+) -> Int {
+  let selector =
+    process.new_selector()
+    |> process.select(subj)
+
+  case process.selector_receive(selector, timeout_ms) {
+    Ok(Disposed) -> count_dispose_loop(subj, timeout_ms, count + 1)
+    Error(_) -> count
+  }
+}
+
+/// Create an observable that tracks when it's disposed (async version)
+/// The delay allows SetDisposable message to be processed before emissions
+fn tracked_source(
+  dispose_tracker: Subject(DisposeMsg),
+  values: List(a),
+  should_error: Bool,
+) -> Observable(a) {
+  Observable(subscribe: fn(observer: Observer(a)) {
+    let Observer(notify) = observer
+
+    // Create a subject to signal when we should dispose the timer
+    let disposed_subject: Subject(Bool) = process.new_subject()
+
+    // Spawn a process to emit after a small delay
+    // This ensures SetDisposable is processed before emissions
+    process.spawn(fn() {
+      // Small delay to allow SetDisposable to be processed
+      process.sleep(5)
+
+      // Check if already disposed
+      let selector =
+        process.new_selector()
+        |> process.select(disposed_subject)
+
+      case process.selector_receive(selector, 0) {
+        Ok(True) -> Nil
+        _ -> {
+          // Emit values
+          emit_values(notify, values)
+
+          // Either error or complete
+          case should_error {
+            True -> notify(OnError("test error"))
+            False -> notify(OnCompleted)
+          }
+        }
+      }
+    })
+
+    // Return disposable that tracks disposal
+    Disposable(dispose: fn() {
+      process.send(disposed_subject, True)
+      process.send(dispose_tracker, Disposed)
+      Nil
+    })
+  })
+}
+
+fn emit_values(notify: fn(Notification(a)) -> Nil, values: List(a)) -> Nil {
+  case values {
+    [] -> Nil
+    [x, ..rest] -> {
+      notify(OnNext(x))
+      emit_values(notify, rest)
+    }
+  }
+}
+
+/// retry should dispose previous subscription when retrying
+pub fn retry_disposes_previous_on_retry_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Track subscription attempts
+  let attempt_subject: Subject(Int) = process.new_subject()
+
+  let observable =
+    actorx.defer(fn() {
+      process.send(attempt_subject, 1)
+      // Check attempt count
+      let selector =
+        process.new_selector()
+        |> process.select(attempt_subject)
+      let attempt_count = drain_attempts(selector, 0)
+
+      case attempt_count {
+        1 ->
+          // First attempt: error
+          tracked_source(dispose_tracker, [1, 2], True)
+        _ ->
+          // Second attempt: succeed
+          tracked_source(dispose_tracker, [3, 4], False)
+      }
+    })
+    |> actorx.retry(2)
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  let #(values, completed, _errors) = collect_messages(result_subject, 100)
+
+  // Should get values from both attempts
+  values |> should.equal([1, 2, 3, 4])
+  completed |> should.be_true()
+
+  // First subscription should have been disposed when retry happened
+  // Second subscription disposed on completion
+  let dispose_count = count_dispose_messages(dispose_tracker, 50)
+  dispose_count |> should.equal(2)
+}
+
+fn drain_attempts(selector, count: Int) -> Int {
+  case process.selector_receive(selector, 1) {
+    Ok(_) -> drain_attempts(selector, count + 1)
+    Error(_) -> count
+  }
+}
+
+/// retry should dispose current subscription when outer is disposed
+pub fn retry_disposes_current_on_outer_dispose_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Create a long-running source
+  let source =
+    Observable(subscribe: fn(observer: Observer(Int)) {
+      // Use interval to keep emitting
+      let inner = actorx.interval(50)
+      let Disposable(inner_dispose) = actorx.subscribe(inner, observer)
+
+      Disposable(dispose: fn() {
+        process.send(dispose_tracker, Disposed)
+        inner_dispose()
+        Nil
+      })
+    })
+
+  let observable = source |> actorx.retry(2)
+
+  let Disposable(dispose) =
+    actorx.subscribe(observable, message_observer(result_subject))
+
+  // Wait for some emissions
+  process.sleep(80)
+
+  // Dispose outer subscription
+  dispose()
+
+  // Inner subscription should have been disposed
+  let dispose_count = count_dispose_messages(dispose_tracker, 100)
+  dispose_count |> should.equal(1)
+}
+
+/// catch should dispose source when switching to fallback
+pub fn catch_disposes_source_on_switch_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Source that errors and tracks disposal
+  let source = tracked_source(dispose_tracker, [1, 2], True)
+
+  // Fallback that also tracks disposal
+  let fallback = tracked_source(dispose_tracker, [10, 20], False)
+
+  let observable = source |> actorx.catch(fn(_) { fallback })
+
+  let _ = actorx.subscribe(observable, message_observer(result_subject))
+
+  let #(values, completed, _errors) = collect_messages(result_subject, 100)
+
+  // Should get source values then fallback values
+  values |> should.equal([1, 2, 10, 20])
+  completed |> should.be_true()
+
+  // Both source and fallback should be disposed
+  let dispose_count = count_dispose_messages(dispose_tracker, 50)
+  dispose_count |> should.equal(2)
+}
+
+/// catch should dispose fallback when outer is disposed
+pub fn catch_disposes_fallback_on_outer_dispose_test() {
+  let result_subject: Subject(Notification(Int)) = process.new_subject()
+  let dispose_tracker: Subject(DisposeMsg) = process.new_subject()
+
+  // Source that errors after a small delay (allows SetDisposable to be processed)
+  let source =
+    Observable(subscribe: fn(observer: Observer(Int)) {
+      let Observer(notify) = observer
+      let disposed_subject: Subject(Bool) = process.new_subject()
+
+      process.spawn(fn() {
+        process.sleep(5)
+        let selector =
+          process.new_selector()
+          |> process.select(disposed_subject)
+        case process.selector_receive(selector, 0) {
+          Ok(True) -> Nil
+          _ -> notify(OnError("delayed error"))
+        }
+      })
+
+      Disposable(dispose: fn() {
+        process.send(disposed_subject, True)
+        process.send(dispose_tracker, Disposed)
+        Nil
+      })
+    })
+
+  // Long-running fallback
+  let fallback =
+    Observable(subscribe: fn(observer: Observer(Int)) {
+      let inner = actorx.interval(50)
+      let Disposable(inner_dispose) = actorx.subscribe(inner, observer)
+
+      Disposable(dispose: fn() {
+        process.send(dispose_tracker, Disposed)
+        inner_dispose()
+        Nil
+      })
+    })
+
+  let observable = source |> actorx.catch(fn(_) { fallback })
+
+  let Disposable(dispose) =
+    actorx.subscribe(observable, message_observer(result_subject))
+
+  // Wait for source to error (5ms delay) and fallback to start emitting
+  process.sleep(100)
+
+  // Dispose outer
+  dispose()
+
+  // Both source (disposed on switch) and fallback (disposed on outer dispose) should be tracked
+  let dispose_count = count_dispose_messages(dispose_tracker, 100)
+  dispose_count |> should.equal(2)
 }

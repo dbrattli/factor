@@ -5,10 +5,11 @@
 //// - catch: Switch to fallback observable on error
 
 import actorx/types.{
-  type Observable, type Observer, Disposable, Observable, Observer, OnCompleted,
-  OnError, OnNext,
+  type Disposable, type Observable, type Observer, Disposable, Observable,
+  Observer, OnCompleted, OnError, OnNext,
 }
 import gleam/erlang/process.{type Subject}
+import gleam/option.{type Option, None, Some}
 
 // ============================================================================
 // retry - Resubscribe on error
@@ -20,6 +21,8 @@ type RetryMsg(a) {
   RetryError(String)
   RetryCompleted
   RetryDispose
+  /// Set the current subscription disposable
+  RetrySetDisposable(Disposable)
 }
 
 /// Resubscribes to the source observable when an error occurs,
@@ -42,7 +45,7 @@ pub fn retry(source: Observable(a), max_retries: Int) -> Observable(a) {
     process.spawn(fn() {
       let control: Subject(RetryMsg(a)) = process.new_subject()
       process.send(control_ready, control)
-      retry_loop(control, downstream, source, max_retries, 0)
+      retry_loop(control, downstream, source, max_retries, 0, None)
     })
 
     // Get control subject
@@ -51,8 +54,10 @@ pub fn retry(source: Observable(a), max_retries: Int) -> Observable(a) {
       Error(_) -> panic as "Failed to create retry actor"
     }
 
-    // Initial subscription
-    subscribe_with_retry(source, control)
+    // Initial subscription from parent process (preserves original behavior)
+    let initial_disp = subscribe_with_retry(source, control)
+    // Tell actor about the disposable
+    process.send(control, RetrySetDisposable(initial_disp))
 
     Disposable(dispose: fn() {
       process.send(control, RetryDispose)
@@ -61,7 +66,11 @@ pub fn retry(source: Observable(a), max_retries: Int) -> Observable(a) {
   })
 }
 
-fn subscribe_with_retry(source: Observable(a), control: Subject(RetryMsg(a))) {
+/// Subscribe to source and return the disposable
+fn subscribe_with_retry(
+  source: Observable(a),
+  control: Subject(RetryMsg(a)),
+) -> Disposable {
   let source_observer =
     Observer(notify: fn(n) {
       case n {
@@ -72,8 +81,7 @@ fn subscribe_with_retry(source: Observable(a), control: Subject(RetryMsg(a))) {
     })
 
   let Observable(subscribe) = source
-  let _ = subscribe(source_observer)
-  Nil
+  subscribe(source_observer)
 }
 
 fn retry_loop(
@@ -82,35 +90,82 @@ fn retry_loop(
   source: Observable(a),
   max_retries: Int,
   retry_count: Int,
+  current_disp: Option(Disposable),
 ) -> Nil {
   let selector =
     process.new_selector()
     |> process.select(control)
 
   case process.selector_receive_forever(selector) {
+    RetrySetDisposable(disp) -> {
+      // Store the disposable from initial subscription
+      retry_loop(
+        control,
+        downstream,
+        source,
+        max_retries,
+        retry_count,
+        Some(disp),
+      )
+    }
     RetryNext(x) -> {
       downstream(OnNext(x))
-      retry_loop(control, downstream, source, max_retries, retry_count)
+      retry_loop(
+        control,
+        downstream,
+        source,
+        max_retries,
+        retry_count,
+        current_disp,
+      )
     }
     RetryError(e) -> {
       case retry_count < max_retries {
         True -> {
+          // Dispose previous subscription before retrying
+          case current_disp {
+            Some(Disposable(dispose)) -> dispose()
+            None -> Nil
+          }
           // Retry: resubscribe to source
-          subscribe_with_retry(source, control)
-          retry_loop(control, downstream, source, max_retries, retry_count + 1)
+          let new_disp = subscribe_with_retry(source, control)
+          retry_loop(
+            control,
+            downstream,
+            source,
+            max_retries,
+            retry_count + 1,
+            Some(new_disp),
+          )
         }
         False -> {
-          // Max retries reached, propagate error
+          // Max retries reached, dispose and propagate error
+          case current_disp {
+            Some(Disposable(dispose)) -> dispose()
+            None -> Nil
+          }
           downstream(OnError(e))
           Nil
         }
       }
     }
     RetryCompleted -> {
+      // Dispose current subscription on completion
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       downstream(OnCompleted)
       Nil
     }
-    RetryDispose -> Nil
+    RetryDispose -> {
+      // Dispose current subscription
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
+      Nil
+    }
   }
 }
 
@@ -124,6 +179,8 @@ type CatchMsg(a) {
   CatchError(String)
   CatchCompleted
   CatchDispose
+  /// Set the current subscription disposable
+  CatchSetDisposable(Disposable)
   // Fallback messages - errors from fallback propagate, not caught again
   FallbackNext(a)
   FallbackError(String)
@@ -153,7 +210,7 @@ pub fn catch(
     process.spawn(fn() {
       let control: Subject(CatchMsg(a)) = process.new_subject()
       process.send(control_ready, control)
-      catch_loop(control, downstream, handler)
+      catch_loop(control, downstream, handler, None)
     })
 
     // Get control subject
@@ -162,43 +219,62 @@ pub fn catch(
       Error(_) -> panic as "Failed to create catch actor"
     }
 
-    // Subscribe to source
-    let source_observer =
-      Observer(notify: fn(n) {
-        case n {
-          OnNext(x) -> process.send(control, CatchNext(x))
-          OnError(e) -> process.send(control, CatchError(e))
-          OnCompleted -> process.send(control, CatchCompleted)
-        }
-      })
-
-    let Observable(subscribe) = source
-    let source_disp = subscribe(source_observer)
+    // Initial subscription from parent process (preserves original behavior)
+    let source_disp = subscribe_to_source(source, control)
+    // Tell actor about the disposable
+    process.send(control, CatchSetDisposable(source_disp))
 
     Disposable(dispose: fn() {
-      let Disposable(dispose_source) = source_disp
-      dispose_source()
       process.send(control, CatchDispose)
       Nil
     })
   })
 }
 
+/// Subscribe to source and return disposable
+fn subscribe_to_source(
+  source: Observable(a),
+  control: Subject(CatchMsg(a)),
+) -> Disposable {
+  let source_observer =
+    Observer(notify: fn(n) {
+      case n {
+        OnNext(x) -> process.send(control, CatchNext(x))
+        OnError(e) -> process.send(control, CatchError(e))
+        OnCompleted -> process.send(control, CatchCompleted)
+      }
+    })
+
+  let Observable(subscribe) = source
+  subscribe(source_observer)
+}
+
 fn catch_loop(
   control: Subject(CatchMsg(a)),
   downstream: fn(types.Notification(a)) -> Nil,
   handler: fn(String) -> Observable(a),
+  current_disp: Option(Disposable),
 ) -> Nil {
   let selector =
     process.new_selector()
     |> process.select(control)
 
   case process.selector_receive_forever(selector) {
+    CatchSetDisposable(disp) -> {
+      // Store the disposable from initial subscription
+      catch_loop(control, downstream, handler, Some(disp))
+    }
     CatchNext(x) -> {
       downstream(OnNext(x))
-      catch_loop(control, downstream, handler)
+      catch_loop(control, downstream, handler, current_disp)
     }
     CatchError(e) -> {
+      // Dispose source subscription before switching to fallback
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
+
       // Switch to fallback observable
       let fallback = handler(e)
       let fallback_observer =
@@ -212,27 +288,49 @@ fn catch_loop(
         })
 
       let Observable(subscribe_fallback) = fallback
-      let _ = subscribe_fallback(fallback_observer)
+      let fallback_disp = subscribe_fallback(fallback_observer)
 
-      // Continue loop to handle fallback emissions
-      catch_loop(control, downstream, handler)
+      // Continue loop with fallback disposable
+      catch_loop(control, downstream, handler, Some(fallback_disp))
     }
     CatchCompleted -> {
+      // Dispose current subscription on completion
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       downstream(OnCompleted)
       Nil
     }
-    CatchDispose -> Nil
+    CatchDispose -> {
+      // Dispose current subscription (source or fallback)
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
+      Nil
+    }
     // Fallback messages - forward directly, don't catch errors
     FallbackNext(x) -> {
       downstream(OnNext(x))
-      catch_loop(control, downstream, handler)
+      catch_loop(control, downstream, handler, current_disp)
     }
     FallbackError(e) -> {
+      // Dispose fallback subscription on error
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       // Propagate fallback errors downstream (to be caught by outer catch if any)
       downstream(OnError(e))
       Nil
     }
     FallbackCompleted -> {
+      // Dispose fallback subscription on completion
+      case current_disp {
+        Some(Disposable(dispose)) -> dispose()
+        None -> Nil
+      }
       downstream(OnCompleted)
       Nil
     }
