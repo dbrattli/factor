@@ -1,52 +1,52 @@
-# ActorX development tasks
+# Factor development tasks
+
+build_path := "build"
+src_path := "src"
+
+fable_beam := "dotnet run --project ../fable/fable-beam/src/Fable.Cli --"
+fable_lib_beam := "fable_modules/fable-library-beam"
 
 # List available recipes
 default:
     @just --list
 
-# Build the project
-build:
-    gleam build
-
-# Run all tests
-test:
-    gleam test
-
-# Check code formatting
-check:
-    gleam format --check src test
-
-# Format source and test files
-format:
-    gleam format src test
-
-# Download dependencies
-deps:
-    gleam deps download
-
-# Build and test
-all: build test
-
 # Clean build artifacts
 clean:
-    rm -rf build
+    rm -rf {{build_path}}
 
-# Run a specific test file (e.g., just test-file create)
-test-file name:
-    gleam test -- --module {{name}}_test
+# Build F# to Erlang via Fable.Beam
+build: clean
+    mkdir -p {{build_path}}
+    {{fable_beam}} {{src_path}} --exclude Fable.Core --lang beam --outDir {{build_path}}
 
-# Publish to Hex (requires authentication)
-publish:
-    gleam publish
+# Build F# project only (type check)
+check:
+    dotnet build src/
 
-# Generate documentation
-docs:
-    gleam docs build
+# Format source files
+format:
+    dotnet fantomas src -r
 
-# Open documentation in browser
-docs-open:
-    gleam docs build --open
+# Setup tooling
+setup:
+    dotnet tool restore
 
-# Run the Timeflies example
-run-timeflies:
-    cd examples/timeflies && gleam run
+# Type-check test project
+check-test:
+    dotnet build test/
+
+# Build test F# to Erlang via Fable.Beam
+build-test: build
+    {{fable_beam}} test --exclude Fable.Core --lang beam --outDir {{build_path}} --noCache
+
+# Run tests on BEAM
+test: build build-test
+    cp test_runner.erl {{build_path}}/
+    cp src/erl/*.erl {{build_path}}/
+    cd {{build_path}} && erlc -o {{fable_lib_beam}} {{fable_lib_beam}}/*.erl && erlc *.erl && erl -pa {{fable_lib_beam}} -noshell -eval "test_runner:run()" -s init stop
+
+# Build and check
+all: check build
+
+# Check all (src + test)
+check-all: check check-test

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="SafeObserver.fs" />
+    <Compile Include="Create.fs" />
+    <Compile Include="Transform.fs" />
+    <Compile Include="Filter.fs" />
+    <Compile Include="Combine.fs" />
+    <Compile Include="TimeShift.fs" />
+    <Compile Include="Subject.fs" />
+    <Compile Include="Error.fs" />
+    <Compile Include="Interop.fs" />
+    <Compile Include="Builder.fs" />
+    <Compile Include="Factor.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="5.0.0-beta.5" />
+  </ItemGroup>
+</Project>

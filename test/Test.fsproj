@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TestUtils.fs" />
+    <Compile Include="CreateTest.fs" />
+    <Compile Include="TransformTest.fs" />
+    <Compile Include="FilterTest.fs" />
+    <Compile Include="CombineTest.fs" />
+    <Compile Include="TimeshiftTest.fs" />
+    <Compile Include="SubjectTest.fs" />
+    <Compile Include="ErrorTest.fs" />
+    <Compile Include="BuilderTest.fs" />
+    <Compile Include="NewOperatorsTest.fs" />
+    <Compile Include="MergeInnerTest.fs" />
+    <Compile Include="AmbForkjoinTest.fs" />
+    <Compile Include="ShareTest.fs" />
+    <Compile Include="GroupByTest.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/Factor.fsproj" />
+  </ItemGroup>
+</Project>
