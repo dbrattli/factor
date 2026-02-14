@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via [Fable.Beam](https://github.com/nicklaskno/fable-beam). It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx).
+Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via [Fable.Beam](https://github.com/fable-compiler/Fable). It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx).
 
 ## Build Commands
 

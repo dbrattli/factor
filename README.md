@@ -4,11 +4,11 @@
 >
 > This library is a learning project exploring Rx patterns on the BEAM. It is **not production-ready** and has known limitations with OTP integration (no process monitoring, no supervision trees).
 
-Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via [Fable.Beam](https://github.com/nicklaskno/fable-beam). It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx).
+Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via [Fable.Beam](https://github.com/fable-compiler/Fable). It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx).
 
 ## Build
 
-Requires .NET SDK 8+ and the [Fable.Beam](https://github.com/nicklaskno/fable-beam) compiler.
+Requires .NET SDK 8+ and the [Fable.Beam](https://github.com/fable-compiler/Fable) compiler.
 
 ```sh
 just build    # Compile F# to Erlang via Fable.Beam
@@ -295,6 +295,6 @@ MIT
 ## Related Projects
 
 - [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) — Original F# implementation
-- [Fable.Beam](https://github.com/nicklaskno/fable-beam) — F# to Erlang compiler
+- [Fable.Beam](https://github.com/fable-compiler/Fable) — F# to Erlang compiler
 - [RxPY](https://github.com/ReactiveX/RxPY) — ReactiveX for Python
 - [Reaxive](https://github.com/alfert/reaxive) — ReactiveX for Elixir
