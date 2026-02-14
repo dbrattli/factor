@@ -1,137 +1,132 @@
-# ActorX for Gleam
+# Factor
 
 > **⚠️ Experimental / Work in Progress**
 >
 > This library is a learning project exploring Rx patterns on the BEAM. It is **not production-ready** and has known limitations with OTP integration (no process monitoring, no supervision trees).
 
-ActorX is a Reactive Extensions (Rx) library for Gleam targeting the Erlang/BEAM runtime. It's a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) to Gleam.
+Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via [Fable.Beam](https://github.com/nicklaskno/fable-beam). It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx).
 
-## Installation
+## Build
 
-```toml
-# In gleam.toml
-[dependencies]
-actorx = { git = "https://github.com/dbrattli/actorx", ref = "main" }
+Requires .NET SDK 8+ and the [Fable.Beam](https://github.com/nicklaskno/fable-beam) compiler.
+
+```sh
+just build    # Compile F# to Erlang via Fable.Beam
+just check    # Type-check F# with dotnet build
+just test     # Run all 273 tests on BEAM
+just format   # Format source with Fantomas
 ```
 
 ## Example
 
-```gleam
-import actorx
-import gleam/io
-import gleam/int
+```fsharp
+open Factor.Types
+open Factor.Rx
 
-pub fn main() {
-  // Create an observable pipeline
-  let observable =
-    actorx.from_list([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    |> actorx.filter(fn(x) { x % 2 == 0 })  // Keep even numbers
-    |> actorx.map(fn(x) { x * 10 })         // Multiply by 10
-    |> actorx.take(3)                       // Take first 3
+// Create an observable pipeline
+let observable =
+    Rx.ofList [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10 ]
+    |> Rx.filter (fun x -> x % 2 = 0)   // Keep even numbers
+    |> Rx.map (fun x -> x * 10)          // Multiply by 10
+    |> Rx.take 3                         // Take first 3
 
-  // Create an observer
-  let observer = actorx.make_observer(
-    on_next: fn(x) { io.println("Value: " <> int.to_string(x)) },
-    on_error: fn(_err) { Nil },
-    on_completed: fn() { io.println("Done!") },
-  )
+// Create an observer
+let observer =
+    Rx.makeObserver
+        (fun x -> printfn "Value: %d" x)
+        (fun _err -> ())
+        (fun () -> printfn "Done!")
 
-  // Subscribe
-  let _disposable = actorx.subscribe(observable, observer)
-  // Output:
-  // Value: 20
-  // Value: 40
-  // Value: 60
-  // Done!
-}
+// Subscribe
+let _disposable = Rx.subscribe observer observable
+// Output:
+// Value: 20
+// Value: 40
+// Value: 60
+// Done!
 ```
 
-## Builder Pattern with `use`
+## Computation Expression
 
-ActorX supports Gleam's `use` keyword for monadic composition, similar to F#'s computation expressions:
+Factor supports F#'s computation expression syntax (`rx { ... }`) for monadic composition:
 
-```gleam
-import actorx
-import actorx/builder.{bind, return}
+```fsharp
+open Factor.Rx
+open Factor.Builder
 
-pub fn example() {
-  use x <- bind(actorx.single(10))
-  use y <- bind(actorx.single(20))
-  use z <- bind(actorx.from_list([1, 2, 3]))
-  return(x + y + z)
-}
+let example =
+    rx {
+        let! x = Rx.single 10
+        let! y = Rx.single 20
+        let! z = Rx.ofList [ 1; 2; 3 ]
+        return x + y + z
+    }
 // Emits: 31, 32, 33 then completes
 ```
 
 ## Async Operators
 
-ActorX provides time-based operators for async scenarios:
+Factor provides time-based operators for async scenarios. These use native Erlang `erlang:send_after` via the `factor_timer` module, ensuring callbacks execute in the subscriber's process context.
 
-```gleam
-import actorx
-import actorx/types.{Disposable}
-import gleam/io
-import gleam/int
+```fsharp
+open Factor.Rx
 
-pub fn async_example() {
-  // Emit 0, 1, 2, ... every 100ms, take first 5
-  let observable = actorx.interval(100)
-    |> actorx.take(5)
-    |> actorx.map(fn(x) { x * 10 })
+// Emit 0, 1, 2, ... every 100ms, take first 5
+let observable =
+    Rx.interval 100
+    |> Rx.take 5
+    |> Rx.map (fun x -> x * 10)
 
-  let observer = actorx.make_observer(
-    on_next: fn(x) { io.println(int.to_string(x)) },
-    on_error: fn(_) { Nil },
-    on_completed: fn() { io.println("Done!") },
-  )
+let observer =
+    Rx.makeObserver
+        (fun x -> printfn "%d" x)
+        (fun _ -> ())
+        (fun () -> printfn "Done!")
 
-  let Disposable(dispose) = actorx.subscribe(observable, observer)
-  // Output over 500ms: 0, 10, 20, 30, 40, Done!
+let disposable = Rx.subscribe observer observable
+// Output over 500ms: 0, 10, 20, 30, 40, Done!
 
-  // Can dispose early to cancel
-  // dispose()
-}
+// Can dispose early to cancel
+// disposable.Dispose()
 ```
 
 ### Subject Example
 
-Subjects are both Observers and Observables - push values in, subscribe to receive them:
+Subjects are both Observers and Observables — push values in, subscribe to receive them:
 
-```gleam
-import actorx
+```fsharp
+open Factor.Rx
 
-pub fn subject_example() {
-  let #(input, output) = actorx.single_subject()
+let input, output = Rx.singleSubject ()
 
-  // Subscribe to output
-  let _disp = actorx.subscribe(output, my_observer)
+// Subscribe to output
+let _disp = Rx.subscribe myObserver output
 
-  // Push values through input
-  actorx.on_next(input, 1)
-  actorx.on_next(input, 2)
-  actorx.on_completed(input)
-}
+// Push values through input
+Rx.onNext input 1
+Rx.onNext input 2
+Rx.onCompleted input
 ```
 
 ## Core Concepts
 
 ### Observable
 
-An `Observable(a)` represents a push-based stream of values of type `a`. Observables are lazy - they don't produce values until subscribed to.
+An `Observable<'a>` represents a push-based stream of values of type `'a`. Observables are lazy — they don't produce values until subscribed to.
 
 ### Observer
 
-An `Observer(a)` receives notifications from an Observable:
+An `Observer<'a>` receives notifications from an Observable:
 
-- `on_next(a)` - Called for each value
-- `on_error(String)` - Called on error (terminal)
-- `on_completed()` - Called when complete (terminal)
+- `OnNext x` — Called for each value
+- `OnError msg` — Called on error (terminal)
+- `OnCompleted` — Called when complete (terminal)
 
 The Rx contract guarantees: `OnNext* (OnError | OnCompleted)?`
 
 ### Disposable
 
-A `Disposable` represents a subscription that can be cancelled. Call `dispose()` to unsubscribe and release resources.
+A `Disposable` represents a subscription that can be cancelled. Call `Dispose()` to unsubscribe and release resources.
 
 ## Available Operators
 
@@ -139,170 +134,158 @@ A `Disposable` represents a subscription that can be cancelled. Call `dispose()`
 
 |      Operator      |              Description              |
 | ------------------ | ------------------------------------- |
-| `single(value)`    | Emit single value, then complete      |
-| `empty()`          | Complete immediately                  |
-| `never()`          | Never emit, never complete            |
-| `fail(error)`      | Error immediately                     |
-| `from_list(items)` | Emit all items from list              |
-| `defer(factory)`   | Create observable lazily on subscribe |
+| `single value`     | Emit single value, then complete      |
+| `empty ()`         | Complete immediately                  |
+| `never ()`         | Never emit, never complete            |
+| `fail error`       | Error immediately                     |
+| `ofList items`     | Emit all items from list              |
+| `defer factory`    | Create observable lazily on subscribe |
 
 ### Transform
 
-|           Operator           |                              Description                              |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `map(source, fn)`            | Transform each element                                                |
-| `mapi(source, fn)`           | Transform with index: `fn(a, Int) -> b`                               |
-| `flat_map(source, fn)`       | Map to observables, merge results (= map + merge_inner)               |
-| `flat_mapi(source, fn)`      | Map with index to observables, merge (= mapi + merge_inner)           |
-| `concat_map(source, fn)`     | Map to observables, concatenate in order (= map + concat_inner)       |
-| `concat_mapi(source, fn)`    | Map with index to observables, concatenate (= mapi + concat_inner)    |
-| `switch_map(source, fn)`     | Map to observables, switch to latest (= map + switch_inner)           |
-| `switch_mapi(source, fn)`    | Map with index to observables, switch (= mapi + switch_inner)         |
-| `merge_inner(source, max)`   | Flatten Observable(Observable(a)) with concurrency limit              |
-| `concat_inner(source)`       | Flatten Observable(Observable(a)) in order (= merge_inner with max=1) |
-| `switch_inner(source)`       | Flatten Observable(Observable(a)) by switching to latest              |
-| `scan(source, init, fn)`     | Running accumulation, emit each step                                  |
-| `reduce(source, init, fn)`   | Final accumulation, emit on completion                                |
-| `group_by(source, fn)`       | Group elements into sub-observables by key                            |
-| `tap(source, fn)`            | Side effect for each emission, pass through unchanged                 |
-| `start_with(source, values)` | Prepend values before source emissions                                |
-| `pairwise(source)`           | Emit consecutive pairs: `[1,2,3]` → `[#(1,2), #(2,3)]`                |
+|           Operator            |                              Description                              |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `map fn source`               | Transform each element                                                |
+| `mapi fn source`              | Transform with index: `fn i a -> b`                                   |
+| `flatMap fn source`           | Map to observables, merge results (= map + mergeInner)                |
+| `flatMapi fn source`          | Map with index to observables, merge (= mapi + mergeInner)            |
+| `concatMap fn source`         | Map to observables, concatenate in order (= map + concatInner)        |
+| `concatMapi fn source`        | Map with index to observables, concatenate (= mapi + concatInner)     |
+| `switchMap fn source`         | Map to observables, switch to latest (= map + switchInner)            |
+| `switchMapi fn source`        | Map with index to observables, switch (= mapi + switchInner)          |
+| `mergeInner max source`       | Flatten Observable of Observables with concurrency limit              |
+| `concatInner source`          | Flatten Observable of Observables in order (= mergeInner with max=1)  |
+| `switchInner source`          | Flatten Observable of Observables by switching to latest              |
+| `scan init fn source`         | Running accumulation, emit each step                                  |
+| `reduce init fn source`       | Final accumulation, emit on completion                                |
+| `groupBy keySelector source`  | Group elements into sub-observables by key                            |
+| `tap fn source`               | Side effect for each emission, pass through unchanged                 |
+| `startWith values source`     | Prepend values before source emissions                                |
+| `pairwise source`             | Emit consecutive pairs: `[1;2;3]` → `[(1,2); (2,3)]`                 |
 
 ### Filter
 
-|             Operator             |               Description                |
-| -------------------------------- | ---------------------------------------- |
-| `filter(source, predicate)`      | Keep elements matching predicate         |
-| `take(source, n)`                | Take first N elements                    |
-| `skip(source, n)`                | Skip first N elements                    |
-| `take_while(source, predicate)`  | Take while predicate is true             |
-| `skip_while(source, predicate)`  | Skip while predicate is true             |
-| `choose(source, fn)`             | Filter + map via Option                  |
-| `distinct_until_changed(source)` | Skip consecutive duplicates              |
-| `distinct(source)`               | Filter ALL duplicates (seen list)        |
-| `take_until(source, other)`      | Take until other observable emits        |
-| `take_last(source, n)`           | Emit last N elements on completion       |
-| `first(source)`                  | Take only first element (error if empty) |
-| `last(source)`                   | Take only last element (error if empty)  |
-| `default_if_empty(source, val)`  | Emit default if source is empty          |
-| `sample(source, sampler)`        | Sample source when sampler emits         |
+|             Operator              |               Description                |
+| --------------------------------- | ---------------------------------------- |
+| `filter predicate source`         | Keep elements matching predicate         |
+| `take n source`                   | Take first N elements                    |
+| `skip n source`                   | Skip first N elements                    |
+| `takeWhile predicate source`      | Take while predicate is true             |
+| `skipWhile predicate source`      | Skip while predicate is true             |
+| `choose fn source`                | Filter + map via Option                  |
+| `distinctUntilChanged source`     | Skip consecutive duplicates              |
+| `distinct source`                 | Filter ALL duplicates (seen set)         |
+| `takeUntil other source`          | Take until other observable emits        |
+| `takeLast n source`               | Emit last N elements on completion       |
+| `first source`                    | Take only first element (error if empty) |
+| `last source`                     | Take only last element (error if empty)  |
+| `defaultIfEmpty val source`       | Emit default if source is empty          |
+| `sample sampler source`           | Sample source when sampler emits         |
 
 ### Timeshift (Async)
 
 |          Operator          |                  Description                  |
 | -------------------------- | --------------------------------------------- |
-| `timer(delay_ms)`          | Emit `0` after delay, then complete           |
-| `interval(period_ms)`      | Emit 0, 1, 2, ... at regular intervals        |
-| `delay(source, ms)`        | Delay each emission by specified time         |
-| `debounce(source, ms)`     | Emit only after silence period                |
-| `throttle(source, ms)`     | Rate limit to at most one per period          |
-| `timeout(source, ms)`      | Error if no emission within timeout period    |
+| `timer delayMs`            | Emit `0` after delay, then complete           |
+| `interval periodMs`        | Emit 0, 1, 2, ... at regular intervals        |
+| `delay ms source`          | Delay each emission by specified time         |
+| `debounce ms source`       | Emit only after silence period                |
+| `throttle ms source`       | Rate limit to at most one per period          |
+| `timeout ms source`        | Error if no emission within timeout period    |
 
 ### Subject
 
 |      Operator      |                     Description                     |
 | ------------------ | --------------------------------------------------- |
-| `subject()`        | Multicast subject, allows multiple subscribers      |
-| `single_subject()` | Single-subscriber subject, buffers until subscribed |
-| `publish(source)`  | Connectable hot observable, call connect() to start |
-| `share(source)`    | Auto-connecting multicast, refCount semantics       |
+| `subject ()`       | Multicast subject, allows multiple subscribers      |
+| `singleSubject ()` | Single-subscriber subject, buffers until subscribed  |
+| `publish source`   | Connectable hot observable, call connect() to start  |
+| `share source`     | Auto-connecting multicast, refCount semantics        |
 
 ### Combine
 
-|              Operator              |                    Description                     |
-| ---------------------------------- | -------------------------------------------------- |
-| `merge(sources)`                   | Merge multiple observables into one                |
-| `merge2(source1, source2)`         | Merge two observables                              |
-| `concat(sources)`                  | Subscribe to sources sequentially                  |
-| `concat2(source1, source2)`        | Concatenate two observables                        |
-| `amb(sources)`                     | Race: first source to emit wins, others disposed   |
-| `race(sources)`                    | Alias for `amb`                                    |
-| `fork_join(sources)`               | Wait for all to complete, emit list of last values |
-| `combine_latest(s1, s2, fn)`       | Combine latest values from two sources             |
-| `with_latest_from(source, s2, fn)` | Sample source with latest from another             |
-| `zip(source1, source2, fn)`        | Pair elements by index                             |
+|              Operator               |                    Description                     |
+| ----------------------------------- | -------------------------------------------------- |
+| `merge sources`                     | Merge multiple observables into one                |
+| `merge2 source1 source2`           | Merge two observables                              |
+| `concat sources`                    | Subscribe to sources sequentially                  |
+| `concat2 source1 source2`          | Concatenate two observables                        |
+| `amb sources`                       | Race: first source to emit wins, others disposed   |
+| `race sources`                      | Alias for `amb`                                    |
+| `forkJoin sources`                  | Wait for all to complete, emit list of last values |
+| `combineLatest fn s1 s2`           | Combine latest values from two sources             |
+| `withLatestFrom fn sampler source` | Sample source with latest from another             |
+| `zip fn source1 source2`           | Pair elements by index                             |
 
 ### Error Handling
 
 |        Operator         |                  Description                   |
 | ----------------------- | ---------------------------------------------- |
-| `retry(source, n)`      | Resubscribe on error, up to N retries          |
-| `catch(source, fn)`     | On error, switch to fallback from handler      |
+| `retry n source`        | Resubscribe on error, up to N retries          |
+| `catch handler source`  | On error, switch to fallback from handler      |
 
-### Builder (for `use` syntax)
+### Builder (`rx { ... }`)
 
 |         Function          |         Description          |
 | ------------------------- | ---------------------------- |
-| `bind(source, fn)`        | FlatMap for `use` syntax     |
-| `return(value)`           | Lift value into observable   |
-| `map_over(source, fn)`    | Map for `use` syntax         |
-| `filter_with(source, fn)` | Filter for `use` syntax      |
-| `for_each(list, fn)`      | Iterate list, concat results |
+| `let! x = source`         | Bind (flatMap)               |
+| `return value`            | Lift value into observable   |
+| `return! source`          | Return from observable       |
+| `for x in list do`        | Iterate list, concat results |
 
 ## Design
 
-### Why Gleam + BEAM?
+### Why F# + BEAM?
 
-The original F# AsyncRx uses `MailboxProcessor` (actors) to:
+Factor uses F# compiled to Erlang via Fable.Beam. The F# type system provides strong typing and inference, while the BEAM runtime provides lightweight processes, fault tolerance, and distribution.
 
-1. Serialize notifications (no concurrent observer calls)
-2. Enforce Rx grammar
-3. Manage state safely
+State management uses **mutable variables** which Fable.Beam backs with the Erlang process dictionary. This keeps the implementation simple — all stateful operators run synchronously in the subscriber's process context.
+
+### Timer Architecture
+
+Time-based operators use a native Erlang module (`factor_timer`) that schedules callbacks via `erlang:send_after`. Callbacks are delivered as messages to `self()` and executed by a timer pump (`process_timers`), ensuring they run in the subscriber's process with access to the process dictionary state.
 
 ### Compositional Design
 
-Higher-order operators are composed from primitives, following the standard Rx pattern:
+Higher-order operators are composed from primitives:
 
-```gleam
-// flat_map = map + merge_inner (unlimited concurrency)
-pub fn flat_map(source, mapper) {
-  source |> map(mapper) |> merge_inner(None)
-}
+```fsharp
+// flatMap = map + mergeInner (unlimited concurrency)
+let flatMap mapper source =
+    source |> map mapper |> mergeInner None
 
-// concat_map = map + concat_inner (sequential)
-pub fn concat_map(source, mapper) {
-  source |> map(mapper) |> concat_inner()
-}
+// concatMap = map + concatInner (sequential)
+let concatMap mapper source =
+    source |> map mapper |> concatInner
 
-// concat_inner is merge_inner with max_concurrency=1
-pub fn concat_inner(source) {
-  merge_inner(source, Some(1))
-}
+// concatInner = mergeInner with maxConcurrency=1
+let concatInner source =
+    mergeInner (Some 1) source
 ```
 
-The `merge_inner` operator accepts a `max_concurrency` parameter:
+The `mergeInner` operator accepts a `maxConcurrency` parameter:
 
-- `None` - unlimited concurrency (subscribe to all inner observables immediately)
-- `Some(1)` - sequential processing (equivalent to `concat_inner`)
-- `Some(n)` - at most n inner observables active, queue the rest
-
-This enables building new operators (like `switch_map = map + switch_inner`) from reusable primitives.
+- `None` — unlimited concurrency (subscribe to all inner observables immediately)
+- `Some 1` — sequential processing (equivalent to `concatInner`)
+- `Some n` — at most n inner observables active, queue the rest
 
 ### Safe Observer
 
-The `safe_observer` module provides Rx grammar enforcement:
+The `SafeObserver` module enforces the Rx grammar:
 
 - Tracks "stopped" state
 - Ignores events after terminal
 - Calls disposal on terminal events
 
-## Examples
-
-### Timeflies Demo
-
-A classic Rx demo where letters trail behind your mouse cursor. Demonstrates `subject`, `flat_map`, `delay`, and WebSocket integration with Mist.
-
-```sh
-cd examples/timeflies
-gleam run
-# Open http://localhost:3000
-```
-
 ## Development
 
 ```sh
-gleam build  # Build the project
-gleam test   # Run the tests
+just build    # Compile F# to Erlang via Fable.Beam
+just check    # Type-check with dotnet build
+just test     # Run tests on BEAM
+just format   # Format with Fantomas
+just clean    # Clean build artifacts
+just all      # Check and build
 ```
 
 ## License
@@ -311,7 +294,7 @@ MIT
 
 ## Related Projects
 
-- [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) - Original F# implementation
-- [RxPY](https://github.com/ReactiveX/RxPY) - ReactiveX for Python
-- [Reaxive](https://github.com/alfert/reaxive) - ReactiveX for Elixir
-- [GenStage](https://github.com/elixir-lang/gen_stage) - Elixir's demand-driven streams
+- [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) — Original F# implementation
+- [Fable.Beam](https://github.com/nicklaskno/fable-beam) — F# to Erlang compiler
+- [RxPY](https://github.com/ReactiveX/RxPY) — ReactiveX for Python
+- [Reaxive](https://github.com/alfert/reaxive) — ReactiveX for Elixir
