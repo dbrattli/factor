@@ -1,4 +1,9 @@
+build/
+_build/
+deps/
+rebar.lock
 *.beam
 *.ez
-/build
 erl_crash.dump
+bin/
+obj/

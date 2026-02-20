@@ -7,17 +7,17 @@ open Factor.Types
 
 /// Sends each emitted value as a side effect while passing through to downstream.
 /// This is a general-purpose "tee" for sending values somewhere.
-let tapSend (send: 'a -> unit) (source: Observable<'a>) : Observable<'a> =
+let tapSend (send: 'a -> unit) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            let upstreamObserver =
+        fun handler ->
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext value ->
                             send value
-                            observer.Notify(OnNext value)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                            handler.Notify(OnNext value)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }

@@ -1,6 +1,6 @@
-# Timeflies - ActorX Demo
+# Timeflies - Factor Demo
 
-A classic Reactive Extensions demo ported to Gleam using ActorX and WebSockets.
+A classic Reactive Extensions demo using Factor (F#/Fable.Beam) and Cowboy WebSockets.
 
 ## What it does
 
@@ -9,14 +9,14 @@ The letters of "TIME FLIES LIKE AN ARROW" follow your mouse cursor, with each su
 ## Architecture
 
 ```
-Browser                              Gleam Server (Mist + ActorX)
+Browser                              BEAM Server (Cowboy + Factor)
 ┌─────────────────┐                  ┌────────────────────────────────────┐
-│  mousemove      │ ──WebSocket──>   │  single_subject (input)            │
+│  mousemove      │ ──WebSocket──>   │  subject (input)                   │
 │  events (x,y)   │                  │         │                          │
 │                 │                  │         ▼                          │
-│                 │                  │  from_list(letters)                │
-│                 │                  │  |> flat_map (for each letter)     │
-│                 │                  │       mouse_moves                  │
+│                 │                  │  ofList(letters)                   │
+│                 │                  │  |> flatMap (for each letter)      │
+│                 │                  │       mouseMoves                   │
 │                 │                  │       |> delay(80ms * index)       │
 │                 │                  │       |> map(add letter offset)    │
 │                 │                  │         │                          │
@@ -25,18 +25,31 @@ Browser                              Gleam Server (Mist + ActorX)
 └─────────────────┘                  └────────────────────────────────────┘
 ```
 
-## Key ActorX features demonstrated
+## Key Factor features demonstrated
 
-- **`single_subject`** - Creates a hot observable that can receive mouse events pushed from WebSocket
-- **`flat_map`** - For each letter, creates a stream that subscribes to mouse moves
+- **`subject`** - Creates a hot observable that can receive mouse events pushed from WebSocket
+- **`flatMap`** - For each letter, creates a stream that subscribes to mouse moves
 - **`delay`** - Each letter's stream is delayed by `index * 80ms`
 - **`map`** - Transforms mouse positions to letter positions with horizontal offset
+
+## Prerequisites
+
+- .NET SDK 8+
+- Fable.Beam compiler (at `../../../fable/fable-beam/src/Fable.Cli`)
+- Erlang/OTP
+- rebar3
+- Factor library built (`just build` from project root)
 
 ## Running
 
 ```sh
 cd examples/timeflies
-gleam run
+
+# Build Factor library first (from project root)
+cd ../.. && just build && cd examples/timeflies
+
+# Build and run
+just run
 ```
 
 Then open http://localhost:3000 in your browser and move your mouse around.

@@ -12,7 +12,7 @@ open Factor.TestUtils
 let single_subject_forwards_values_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.singleSubject ()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     Rx.onNext input 1
     Rx.onNext input 2
@@ -34,7 +34,7 @@ let single_subject_buffers_before_subscribe_test () =
 
     // Now subscribe
     let tc = TestCollector<int>()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     // Send more after subscribe
     Rx.onNext input 30
@@ -46,7 +46,7 @@ let single_subject_buffers_before_subscribe_test () =
 let single_subject_forwards_errors_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.singleSubject ()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     Rx.onNext input 1
     Rx.onError input "test error"
@@ -57,7 +57,7 @@ let single_subject_forwards_errors_test () =
 let single_subject_dispose_stops_forwarding_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.singleSubject ()
-    let disp = output |> Rx.subscribe tc.Observer
+    let disp = output |> Rx.subscribe tc.Handler
 
     Rx.onNext input 1
     sleep 10
@@ -73,7 +73,7 @@ let single_subject_dispose_stops_forwarding_test () =
 let single_subject_with_facade_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.singleSubject ()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     Rx.onNext input 42
     Rx.onCompleted input
@@ -87,7 +87,7 @@ let single_subject_works_with_map_test () =
 
     output
     |> Rx.map (fun x -> x * 2)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     Rx.onNext input 1
@@ -104,7 +104,7 @@ let single_subject_works_with_filter_test () =
 
     output
     |> Rx.filter (fun x -> x > 2)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     Rx.onNext input 1
@@ -123,7 +123,7 @@ let single_subject_works_with_filter_test () =
 let subject_forwards_values_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.subject ()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     Rx.onNext input 1
     Rx.onNext input 2
@@ -139,8 +139,8 @@ let subject_allows_multiple_subscribers_test () =
     let tc2 = TestCollector<int>()
     let input, output = Rx.subject ()
 
-    output |> Rx.subscribe tc1.Observer |> ignore
-    output |> Rx.subscribe tc2.Observer |> ignore
+    output |> Rx.subscribe tc1.Handler |> ignore
+    output |> Rx.subscribe tc2.Handler |> ignore
 
     Rx.onNext input 42
     Rx.onCompleted input
@@ -161,7 +161,7 @@ let subject_does_not_buffer_test () =
 
     // Now subscribe
     let tc = TestCollector<int>()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     // Send more after subscribe
     Rx.onNext input 30
@@ -174,7 +174,7 @@ let subject_does_not_buffer_test () =
 let subject_dispose_stops_receiving_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.subject ()
-    let disp = output |> Rx.subscribe tc.Observer
+    let disp = output |> Rx.subscribe tc.Handler
 
     Rx.onNext input 1
     sleep 10
@@ -190,7 +190,7 @@ let subject_dispose_stops_receiving_test () =
 let subject_with_facade_test () =
     let tc = TestCollector<int>()
     let input, output = Rx.subject ()
-    output |> Rx.subscribe tc.Observer |> ignore
+    output |> Rx.subscribe tc.Handler |> ignore
 
     Rx.onNext input 42
     Rx.onCompleted input

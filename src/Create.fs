@@ -1,53 +1,53 @@
 /// Creation operators for Factor
 ///
-/// These functions create new Observable sequences from various sources.
+/// These functions create new Factor sequences from various sources.
 module Factor.Create
 
 open Factor.Types
 
-/// Create an observable from a subscribe function.
-let create (subscribe: Observer<'a> -> Disposable) : Observable<'a> = { Subscribe = subscribe }
+/// Create a factor from a subscribe function.
+let create (subscribe: Handler<'a, 'e> -> Handle) : Factor<'a, 'e> = { Subscribe = subscribe }
 
-/// Returns an observable sequence containing a single element.
-let single (value: 'a) : Observable<'a> =
+/// Returns a factor containing a single element.
+let single (value: 'a) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            observer.Notify(OnNext value)
-            observer.Notify(OnCompleted)
-            emptyDisposable () }
+        fun handler ->
+            handler.Notify(OnNext value)
+            handler.Notify(OnCompleted)
+            emptyHandle () }
 
-/// Returns an observable sequence with no elements that completes immediately.
-let empty<'a> () : Observable<'a> =
+/// Returns a factor with no elements that completes immediately.
+let empty<'a, 'e> () : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            observer.Notify(OnCompleted)
-            emptyDisposable () }
+        fun handler ->
+            handler.Notify(OnCompleted)
+            emptyHandle () }
 
-/// Returns an observable sequence that never emits and never completes.
-let never<'a> () : Observable<'a> =
-    { Subscribe = fun _ -> emptyDisposable () }
+/// Returns a factor that never emits and never completes.
+let never<'a, 'e> () : Factor<'a, 'e> =
+    { Subscribe = fun _ -> emptyHandle () }
 
-/// Returns an observable sequence that errors immediately.
-let fail (error: string) : Observable<'a> =
+/// Returns a factor that errors immediately with the given error.
+let fail (error: 'e) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            observer.Notify(OnError error)
-            emptyDisposable () }
+        fun handler ->
+            handler.Notify(OnError error)
+            emptyHandle () }
 
-/// Returns an observable sequence from a list of values.
-let ofList (items: 'a list) : Observable<'a> =
+/// Returns a factor from a list of values.
+let ofList (items: 'a list) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             for x in items do
-                observer.Notify(OnNext x)
+                handler.Notify(OnNext x)
 
-            observer.Notify(OnCompleted)
-            emptyDisposable () }
+            handler.Notify(OnCompleted)
+            emptyHandle () }
 
-/// Returns an observable that invokes the factory function
-/// whenever a new observer subscribes.
-let defer (factory: unit -> Observable<'a>) : Observable<'a> =
+/// Returns a factor that invokes the factory function
+/// whenever a new handler subscribes.
+let defer (factory: unit -> Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            let obs = factory ()
-            obs.Subscribe(observer) }
+        fun handler ->
+            let f = factory ()
+            f.Subscribe(handler) }

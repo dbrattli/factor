@@ -15,7 +15,7 @@ open Factor.TestUtils
 
 let timer_emits_zero_after_delay_test () =
     let tc = TestCollector<int>()
-    let _disp = Rx.timer 50 |> Rx.subscribe tc.Observer
+    let _disp = Rx.timer 50 |> Rx.subscribe tc.Handler
     sleep 200
     shouldEqual [ 0 ] tc.Results
     shouldBeTrue tc.Completed
@@ -23,13 +23,13 @@ let timer_emits_zero_after_delay_test () =
 
 let timer_completes_after_emission_test () =
     let tc = TestCollector<int>()
-    let _disp = Rx.timer 30 |> Rx.subscribe tc.Observer
+    let _disp = Rx.timer 30 |> Rx.subscribe tc.Handler
     sleep 150
     shouldBeTrue tc.Completed
 
 let timer_disposal_prevents_emission_test () =
     let tc = TestCollector<int>()
-    let disp = Rx.timer 100 |> Rx.subscribe tc.Observer
+    let disp = Rx.timer 100 |> Rx.subscribe tc.Handler
     sleep 20
     disp.Dispose()
     sleep 200
@@ -42,7 +42,7 @@ let timer_disposal_prevents_emission_test () =
 
 let interval_emits_incrementing_values_test () =
     let tc = TestCollector<int>()
-    let disp = Rx.interval 30 |> Rx.subscribe tc.Observer
+    let disp = Rx.interval 30 |> Rx.subscribe tc.Handler
     sleep 130
     disp.Dispose()
     sleep 50
@@ -57,7 +57,7 @@ let interval_emits_incrementing_values_test () =
 
 let interval_disposal_stops_emissions_test () =
     let tc = TestCollector<int>()
-    let disp = Rx.interval 30 |> Rx.subscribe tc.Observer
+    let disp = Rx.interval 30 |> Rx.subscribe tc.Handler
     sleep 80
     disp.Dispose()
     let countAtDisposal = tc.Results.Length
@@ -75,7 +75,7 @@ let delay_shifts_emissions_in_time_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.delay 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     // Immediately after subscribe, should have no values
@@ -89,7 +89,7 @@ let delay_preserves_order_test () =
 
     Rx.ofList [ 5; 4; 3; 2; 1 ]
     |> Rx.delay 30
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -100,7 +100,7 @@ let delay_completes_after_all_emitted_test () =
 
     Rx.ofList [ 1; 2 ]
     |> Rx.delay 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     // Immediately after, should not be complete
@@ -117,7 +117,7 @@ let debounce_waits_for_silence_test () =
 
     Rx.ofList [ 1 ]
     |> Rx.debounce 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -129,7 +129,7 @@ let debounce_emits_latest_value_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.debounce 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -145,7 +145,7 @@ let throttle_emits_first_immediately_test () =
 
     Rx.ofList [ 1; 2; 3; 4; 5 ]
     |> Rx.throttle 100
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 50
@@ -159,7 +159,7 @@ let throttle_completes_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.throttle 30
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -171,7 +171,7 @@ let throttle_completes_test () =
 
 let timer_via_facade_test () =
     let tc = TestCollector<int>()
-    Rx.timer 50 |> Rx.subscribe tc.Observer |> ignore
+    Rx.timer 50 |> Rx.subscribe tc.Handler |> ignore
     sleep 150
     shouldEqual [ 0 ] tc.Results
     shouldBeTrue tc.Completed
@@ -181,7 +181,7 @@ let debounce_via_facade_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.debounce 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -192,7 +192,7 @@ let throttle_via_facade_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.throttle 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -212,7 +212,7 @@ let debounce_dispose_cancels_timer_test () =
     let disp =
         output
         |> Rx.debounce 100
-        |> Rx.subscribe tc.Observer
+        |> Rx.subscribe tc.Handler
 
     Rx.onNext input 42
     sleep 30
@@ -227,7 +227,7 @@ let throttle_dispose_cancels_timer_test () =
     let disp =
         output
         |> Rx.throttle 100
-        |> Rx.subscribe tc.Observer
+        |> Rx.subscribe tc.Handler
 
     // First value emitted immediately, starts window
     Rx.onNext input 1
@@ -249,7 +249,7 @@ let delay_dispose_cancels_pending_timers_test () =
     let disp =
         output
         |> Rx.delay 100
-        |> Rx.subscribe tc.Observer
+        |> Rx.subscribe tc.Handler
 
     Rx.onNext input 1
     Rx.onNext input 2

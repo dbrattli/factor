@@ -17,14 +17,14 @@ type TestCollector<'a>() =
     let mutable results: 'a list = []
     let mutable completed = false
     let mutable errors: string list = []
-    let mutable notifications: Notification<'a> list = []
+    let mutable notifications: Notification<'a, string> list = []
 
     member _.Results = List.rev results
     member _.Completed = completed
     member _.Errors = List.rev errors
     member _.Notifications = List.rev notifications
 
-    member _.Observer: Observer<'a> =
+    member _.Handler: Handler<'a, string> =
         { Notify =
             fun n ->
                 notifications <- n :: notifications

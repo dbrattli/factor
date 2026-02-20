@@ -1,6 +1,6 @@
 /// Subject types for Factor
 ///
-/// Subjects are both Observers and Observables - they can receive
+/// Subjects are both Handlers and Factors - they can receive
 /// notifications and forward them to subscribers.
 module Factor.Subject
 
@@ -8,14 +8,14 @@ open Factor.Types
 
 /// Creates a multicast subject that allows multiple subscribers.
 ///
-/// Returns a tuple of (Observer, Observable) where:
-/// - The Observer side is used to push notifications
-/// - The Observable side can be subscribed to by multiple observers
-let subject<'a> () : Observer<'a> * Observable<'a> =
-    let mutable subscribers: (int * Observer<'a>) list = []
+/// Returns a tuple of (Handler, Factor) where:
+/// - The Handler side is used to push notifications
+/// - The Factor side can be subscribed to by multiple handlers
+let subject<'a, 'e> () : Handler<'a, 'e> * Factor<'a, 'e> =
+    let mutable subscribers: (int * Handler<'a, 'e>) list = []
     let mutable nextId = 0
 
-    let observer =
+    let handler =
         { Notify =
             fun n ->
                 for _, sub in subscribers do
@@ -26,7 +26,7 @@ let subject<'a> () : Observer<'a> * Observable<'a> =
                 | OnError _ -> subscribers <- []
                 | OnNext _ -> () }
 
-    let observable =
+    let factor =
         { Subscribe =
             fun downstream ->
                 let id = nextId
@@ -35,17 +35,17 @@ let subject<'a> () : Observer<'a> * Observable<'a> =
 
                 { Dispose = fun () -> subscribers <- subscribers |> List.filter (fun (sid, _) -> sid <> id) } }
 
-    (observer, observable)
+    (handler, factor)
 
 /// Creates a single-subscriber subject with buffering.
 ///
 /// Notifications sent before subscription are buffered and delivered
 /// when a subscriber connects.
-let singleSubject<'a> () : Observer<'a> * Observable<'a> =
-    let mutable subscriber: Observer<'a> option = None
-    let pending = System.Collections.Generic.Queue<Notification<'a>>()
+let singleSubject<'a, 'e> () : Handler<'a, 'e> * Factor<'a, 'e> =
+    let mutable subscriber: Handler<'a, 'e> option = None
+    let pending = System.Collections.Generic.Queue<Notification<'a, 'e>>()
 
-    let observer =
+    let handler =
         { Notify =
             fun n ->
                 match subscriber with
@@ -58,7 +58,7 @@ let singleSubject<'a> () : Observer<'a> * Observable<'a> =
                     | OnNext _ -> ()
                 | None -> pending.Enqueue(n) }
 
-    let observable =
+    let factor =
         { Subscribe =
             fun downstream ->
                 match subscriber with
@@ -72,24 +72,24 @@ let singleSubject<'a> () : Observer<'a> * Observable<'a> =
 
                     { Dispose = fun () -> subscriber <- None } }
 
-    (observer, observable)
+    (handler, factor)
 
-/// Converts a cold observable into a connectable hot observable.
+/// Converts a cold factor into a connectable hot factor.
 ///
-/// Returns a tuple of (Observable, connect_fn).
-let publish (source: Observable<'a>) : Observable<'a> * (unit -> Disposable) =
-    let mutable subscribers: (int * Observer<'a>) list = []
+/// Returns a tuple of (Factor, connect_fn).
+let publish (source: Factor<'a, 'e>) : Factor<'a, 'e> * (unit -> Handle) =
+    let mutable subscribers: (int * Handler<'a, 'e>) list = []
     let mutable nextId = 0
-    let mutable connection: Disposable option = None
-    let mutable terminal: Notification<'a> option = None
+    let mutable connection: Handle option = None
+    let mutable terminal: Notification<'a, 'e> option = None
 
-    let observable =
+    let factor =
         { Subscribe =
             fun downstream ->
                 match terminal with
                 | Some n ->
                     downstream.Notify(n)
-                    emptyDisposable ()
+                    emptyHandle ()
                 | None ->
                     let id = nextId
                     nextId <- nextId + 1
@@ -103,9 +103,9 @@ let publish (source: Observable<'a>) : Observable<'a> * (unit -> Disposable) =
         | Some existing -> existing
         | None ->
             match terminal with
-            | Some _ -> emptyDisposable ()
+            | Some _ -> emptyHandle ()
             | None ->
-                let sourceObserver =
+                let sourceHandler =
                     { Notify =
                         fun n ->
                             for _, sub in subscribers do
@@ -116,31 +116,31 @@ let publish (source: Observable<'a>) : Observable<'a> * (unit -> Disposable) =
                             | OnError _ -> terminal <- Some n
                             | OnNext _ -> () }
 
-                let sourceDisp = source.Subscribe(sourceObserver)
+                let sourceHandle = source.Subscribe(sourceHandler)
 
-                let connDisp =
+                let connHandle =
                     { Dispose =
                         fun () ->
-                            sourceDisp.Dispose()
+                            sourceHandle.Dispose()
                             connection <- None }
 
-                connection <- Some connDisp
-                connDisp
+                connection <- Some connHandle
+                connHandle
 
-    (observable, connect)
+    (factor, connect)
 
 /// Shares a single subscription to the source among multiple subscribers.
 ///
 /// Automatically connects when the first subscriber subscribes,
 /// and disconnects when the last subscriber unsubscribes.
-let share (source: Observable<'a>) : Observable<'a> =
-    let mutable subscribers: (int * Observer<'a>) list = []
+let share (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+    let mutable subscribers: (int * Handler<'a, 'e>) list = []
     let mutable nextId = 0
-    let mutable sourceDisposable: Disposable option = None
-    let mutable terminal: Notification<'a> option = None
+    let mutable sourceHandle: Handle option = None
+    let mutable terminal: Notification<'a, 'e> option = None
 
     let connectToSource () =
-        let sourceObserver =
+        let sourceHandler =
             { Notify =
                 fun n ->
                     for _, sub in subscribers do
@@ -150,15 +150,15 @@ let share (source: Observable<'a>) : Observable<'a> =
                     | OnCompleted
                     | OnError _ ->
                         terminal <- Some n
-                        sourceDisposable <- None
+                        sourceHandle <- None
                         subscribers <- []
                     | OnNext _ -> () }
 
-        let disp = source.Subscribe(sourceObserver)
+        let h = source.Subscribe(sourceHandler)
 
         // Only set if not already terminated (sync sources complete during Subscribe)
         if terminal.IsNone then
-            sourceDisposable <- Some disp
+            sourceHandle <- Some h
 
     { Subscribe =
         fun downstream ->
@@ -169,11 +169,11 @@ let share (source: Observable<'a>) : Observable<'a> =
 
             // Then connect if needed
             match terminal with
-            | Some _ when sourceDisposable.IsNone ->
+            | Some _ when sourceHandle.IsNone ->
                 terminal <- None
                 connectToSource ()
             | _ ->
-                if sourceDisposable.IsNone then
+                if sourceHandle.IsNone then
                     connectToSource ()
 
             { Dispose =
@@ -181,8 +181,8 @@ let share (source: Observable<'a>) : Observable<'a> =
                     subscribers <- subscribers |> List.filter (fun (sid, _) -> sid <> id)
 
                     if subscribers.IsEmpty then
-                        match sourceDisposable with
-                        | Some d ->
-                            d.Dispose()
-                            sourceDisposable <- None
+                        match sourceHandle with
+                        | Some h ->
+                            h.Dispose()
+                            sourceHandle <- None
                         | None -> () } }

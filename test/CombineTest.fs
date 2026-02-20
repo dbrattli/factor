@@ -11,13 +11,13 @@ open Factor.TestUtils
 
 let merge_empty_list_test () =
     let tc = TestCollector<int>()
-    Rx.merge [] |> Rx.subscribe tc.Observer |> ignore
+    Rx.merge [] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
 let merge_single_source_test () =
     let tc = TestCollector<int>()
-    Rx.merge [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.merge [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2; 3 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -25,7 +25,7 @@ let merge_two_sources_test () =
     let tc = TestCollector<int>()
     let obs1 = Rx.ofList [ 1; 2 ]
     let obs2 = Rx.ofList [ 10; 20 ]
-    Rx.merge [ obs1; obs2 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.merge [ obs1; obs2 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2; 10; 20 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -33,7 +33,7 @@ let merge2_test () =
     let tc = TestCollector<int>()
     let obs1 = Rx.ofList [ 1; 2 ]
     let obs2 = Rx.ofList [ 10; 20 ]
-    Rx.merge2 obs1 obs2 |> Rx.subscribe tc.Observer |> ignore
+    Rx.merge2 obs1 obs2 |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2; 10; 20 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -41,7 +41,7 @@ let merge_with_empty_test () =
     let tc = TestCollector<int>()
     let obs1 = Rx.ofList [ 1; 2 ]
     let obs2 = Rx.empty ()
-    Rx.merge [ obs1; obs2 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.merge [ obs1; obs2 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -55,7 +55,7 @@ let combine_latest_basic_test () =
     let obs2 = Rx.ofList [ "a"; "b" ]
 
     Rx.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     // Sync: obs1 completes with latest=2, then obs2 emits "a" -> (2,"a"), "b" -> (2,"b")
@@ -68,7 +68,7 @@ let combine_latest_with_singles_test () =
     let obs2 = Rx.single "hello"
 
     Rx.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (42, "hello") ] tc.Results
@@ -77,10 +77,10 @@ let combine_latest_with_singles_test () =
 let combine_latest_one_empty_test () =
     let tc = TestCollector<int * string>()
     let obs1 = Rx.ofList [ 1; 2 ]
-    let obs2: Observable<string> = Rx.empty ()
+    let obs2: Factor<string, string> = Rx.empty ()
 
     Rx.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -97,7 +97,7 @@ let with_latest_from_basic_test () =
 
     source
     |> Rx.withLatestFrom (fun a b -> (a, b)) sampler
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     // withLatestFrom subscribes to sampler first, then source.
@@ -115,7 +115,7 @@ let zip_basic_test () =
     let obs2 = Rx.ofList [ "a"; "b"; "c" ]
 
     Rx.zip (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (1, "a"); (2, "b"); (3, "c") ] tc.Results
@@ -127,7 +127,7 @@ let zip_different_lengths_test () =
     let obs2 = Rx.ofList [ "a"; "b" ]
 
     Rx.zip (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (1, "a"); (2, "b") ] tc.Results
@@ -136,10 +136,10 @@ let zip_different_lengths_test () =
 let zip_one_empty_test () =
     let tc = TestCollector<int * string>()
     let obs1 = Rx.ofList [ 1; 2; 3 ]
-    let obs2: Observable<string> = Rx.empty ()
+    let obs2: Factor<string, string> = Rx.empty ()
 
     Rx.zip (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -151,7 +151,7 @@ let zip_singles_test () =
     let obs2 = Rx.single "hello"
 
     Rx.zip (fun a b -> (a, b)) obs1 obs2
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (42, "hello") ] tc.Results

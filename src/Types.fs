@@ -1,37 +1,37 @@
-/// Core types for Factor - Reactive Extensions for BEAM
+/// Core types for Factor - Composable Actors for BEAM
 ///
-/// This module defines the fundamental types for reactive programming:
+/// This module defines the fundamental types:
 /// - Notification: The atoms of the Rx grammar (OnNext, OnError, OnCompleted)
-/// - Disposable: Resource cleanup handle
-/// - Observer: Receives notifications from an observable
-/// - Observable: Source of asynchronous events
+/// - Handle: Resource cleanup handle
+/// - Handler: Receives notifications from a Factor
+/// - Factor: Lazy push-based stream with typed errors
 module Factor.Types
 
 /// Notification represents the three types of events in the Rx grammar:
 /// OnNext* (OnError | OnCompleted)?
-type Notification<'a> =
-    | OnNext of 'a
-    | OnError of string
+type Notification<'T, 'E> =
+    | OnNext of 'T
+    | OnError of 'E
     | OnCompleted
 
-/// Disposable represents a resource that can be cleaned up.
-type Disposable = { Dispose: unit -> unit }
+/// Handle represents a resource that can be cleaned up.
+type Handle = { Dispose: unit -> unit }
 
-/// Create an empty disposable that does nothing when disposed.
-let emptyDisposable () : Disposable = { Dispose = fun () -> () }
+/// Create an empty handle that does nothing when disposed.
+let emptyHandle () : Handle = { Dispose = fun () -> () }
 
-/// Combine multiple disposables into one.
-let compositeDisposable (disposables: Disposable list) : Disposable =
+/// Combine multiple handles into one.
+let compositeHandle (handles: Handle list) : Handle =
     { Dispose =
         fun () ->
-            for d in disposables do
-                d.Dispose() }
+            for h in handles do
+                h.Dispose() }
 
-/// Observer receives notifications from an Observable.
-type Observer<'a> = { Notify: Notification<'a> -> unit }
+/// Handler receives notifications from a Factor.
+type Handler<'T, 'E> = { Notify: Notification<'T, 'E> -> unit }
 
-/// Create an observer from three callback functions.
-let makeObserver (onNext: 'a -> unit) (onError: string -> unit) (onCompleted: unit -> unit) : Observer<'a> =
+/// Create a handler from three callback functions.
+let makeHandler (onNext: 'T -> unit) (onError: 'E -> unit) (onCompleted: unit -> unit) : Handler<'T, 'E> =
     { Notify =
         fun n ->
             match n with
@@ -39,25 +39,25 @@ let makeObserver (onNext: 'a -> unit) (onError: string -> unit) (onCompleted: un
             | OnError e -> onError e
             | OnCompleted -> onCompleted () }
 
-/// Create an observer that only handles OnNext events.
-let makeNextObserver (onNext: 'a -> unit) : Observer<'a> =
+/// Create a handler that only handles OnNext events.
+let makeNextHandler (onNext: 'T -> unit) : Handler<'T, 'E> =
     { Notify =
         fun n ->
             match n with
             | OnNext x -> onNext x
             | _ -> () }
 
-/// Send an OnNext notification to an observer.
-let onNext (observer: Observer<'a>) (value: 'a) : unit = observer.Notify(OnNext value)
+/// Send an OnNext notification to a handler.
+let onNext (handler: Handler<'T, 'E>) (value: 'T) : unit = handler.Notify(OnNext value)
 
-/// Send an OnError notification to an observer.
-let onError (observer: Observer<'a>) (error: string) : unit = observer.Notify(OnError error)
+/// Send an OnError notification to a handler.
+let onError (handler: Handler<'T, 'E>) (error: 'E) : unit = handler.Notify(OnError error)
 
-/// Send an OnCompleted notification to an observer.
-let onCompleted (observer: Observer<'a>) : unit = observer.Notify(OnCompleted)
+/// Send an OnCompleted notification to a handler.
+let onCompleted (handler: Handler<'T, 'E>) : unit = handler.Notify(OnCompleted)
 
-/// Forward a notification to an observer.
-let notify (observer: Observer<'a>) (notification: Notification<'a>) : unit = observer.Notify(notification)
+/// Forward a notification to a handler.
+let notify (handler: Handler<'T, 'E>) (notification: Notification<'T, 'E>) : unit = handler.Notify(notification)
 
-/// Observable is a source of asynchronous events.
-type Observable<'a> = { Subscribe: Observer<'a> -> Disposable }
+/// Factor is a lazy push-based stream with typed errors.
+type Factor<'T, 'E> = { Subscribe: Handler<'T, 'E> -> Handle }

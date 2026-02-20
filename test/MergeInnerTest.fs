@@ -14,7 +14,7 @@ let merge_inner_basic_test () =
 
     Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
     |> Rx.mergeInner None
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldHaveLength 6 tc.Results
@@ -24,8 +24,8 @@ let merge_inner_basic_test () =
 let merge_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Observable<Observable<int>> = Rx.empty ()
-    emptyOuter |> Rx.mergeInner None |> Rx.subscribe tc.Observer |> ignore
+    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
+    emptyOuter |> Rx.mergeInner None |> Rx.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -35,7 +35,7 @@ let merge_inner_empty_inners_test () =
 
     Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
     |> Rx.mergeInner None
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -46,7 +46,7 @@ let merge_inner_single_inner_test () =
 
     Rx.single (Rx.ofList [ 1; 2; 3 ])
     |> Rx.mergeInner None
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -57,7 +57,7 @@ let merge_inner_error_propagates_test () =
 
     Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.fail "inner error"; Rx.ofList [ 3; 4 ] ]
     |> Rx.mergeInner None
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldBeFalse tc.Completed
@@ -72,7 +72,7 @@ let concat_inner_basic_test () =
 
     Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
     |> Rx.concatInner
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
@@ -81,8 +81,8 @@ let concat_inner_basic_test () =
 let concat_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Observable<Observable<int>> = Rx.empty ()
-    emptyOuter |> Rx.concatInner |> Rx.subscribe tc.Observer |> ignore
+    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
+    emptyOuter |> Rx.concatInner |> Rx.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -92,7 +92,7 @@ let concat_inner_empty_inners_test () =
 
     Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
     |> Rx.concatInner
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -103,7 +103,7 @@ let concat_inner_preserves_order_test () =
 
     Rx.ofList [ Rx.ofList [ 1 ]; Rx.ofList [ 2; 3; 4 ]; Rx.ofList [ 5; 6 ] ]
     |> Rx.concatInner
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
@@ -114,7 +114,7 @@ let concat_inner_error_stops_processing_test () =
 
     Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.fail "inner error"; Rx.ofList [ 3; 4 ] ]
     |> Rx.concatInner
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2 ] tc.Results
@@ -132,12 +132,12 @@ let flat_map_is_map_plus_merge_inner_test () =
     let source = Rx.ofList [ 1; 2; 3 ]
     let mapper = fun x -> Rx.ofList [ x; x * 10 ]
 
-    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Observer |> ignore
+    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Handler |> ignore
 
     source
     |> Rx.map mapper
     |> Rx.mergeInner None
-    |> Rx.subscribe tc2.Observer
+    |> Rx.subscribe tc2.Handler
     |> ignore
 
     shouldEqual (List.sort tc1.Results) (List.sort tc2.Results)
@@ -151,12 +151,12 @@ let concat_map_is_map_plus_concat_inner_test () =
     let source = Rx.ofList [ 1; 2; 3 ]
     let mapper = fun x -> Rx.ofList [ x; x * 10 ]
 
-    source |> Rx.concatMap mapper |> Rx.subscribe tc1.Observer |> ignore
+    source |> Rx.concatMap mapper |> Rx.subscribe tc1.Handler |> ignore
 
     source
     |> Rx.map mapper
     |> Rx.concatInner
-    |> Rx.subscribe tc2.Observer
+    |> Rx.subscribe tc2.Handler
     |> ignore
 
     shouldEqual [ 1; 10; 2; 20; 3; 30 ] tc1.Results
@@ -171,8 +171,8 @@ let concat_map_vs_flat_map_order_test () =
     let source = Rx.ofList [ 1; 2; 3 ]
     let mapper = fun x -> Rx.ofList [ x; x * 10 ]
 
-    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Observer |> ignore
-    source |> Rx.concatMap mapper |> Rx.subscribe tc2.Observer |> ignore
+    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Handler |> ignore
+    source |> Rx.concatMap mapper |> Rx.subscribe tc2.Handler |> ignore
 
     // concatMap always has strict order
     shouldEqual [ 1; 10; 2; 20; 3; 30 ] tc2.Results
@@ -188,7 +188,7 @@ let mapi_basic_test () =
 
     Rx.ofList [ "a"; "b"; "c" ]
     |> Rx.mapi (fun x i -> (i, x))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (0, "a"); (1, "b"); (2, "c") ] tc.Results
@@ -199,7 +199,7 @@ let mapi_empty_test () =
 
     Rx.empty ()
     |> Rx.mapi (fun (x: int) i -> (i, x))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -210,7 +210,7 @@ let mapi_index_starts_at_zero_test () =
 
     Rx.ofList [ 100; 200; 300 ]
     |> Rx.mapi (fun _ i -> i)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 0; 1; 2 ] tc.Results
@@ -227,8 +227,8 @@ let merge_inner_max_concurrency_one_equals_concat_test () =
     let source =
         Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
 
-    source |> Rx.mergeInner (Some 1) |> Rx.subscribe tc1.Observer |> ignore
-    source |> Rx.concatInner |> Rx.subscribe tc2.Observer |> ignore
+    source |> Rx.mergeInner (Some 1) |> Rx.subscribe tc1.Handler |> ignore
+    source |> Rx.concatInner |> Rx.subscribe tc2.Handler |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc1.Results
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc2.Results
@@ -244,7 +244,7 @@ let merge_inner_max_concurrency_two_test () =
           Rx.ofList [ 5; 6 ]
           Rx.ofList [ 7; 8 ] ]
     |> Rx.mergeInner (Some 2)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldHaveLength 8 tc.Results
@@ -256,7 +256,7 @@ let merge_inner_max_concurrency_empty_inners_test () =
 
     Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
     |> Rx.mergeInner (Some 2)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
