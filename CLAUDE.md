@@ -32,23 +32,15 @@ Fable.Beam compiler is expected at `../fable/fable-beam/src/Fable.Cli`.
 Factor (source) → Operator (transform) → Handler (sink)
                         ↓
                  State Management
-               (mutable variables / closures)
-```
-
-### Three-Level Error Hierarchy
-
-```
-Level 1: Result<'T, 'E>     - Within expressions, handled locally
-Level 2: OnError of 'E      - Stream error, handled by catch/retry/mapError
-Level 3: Process crash       - Untyped, caught by monitor, converted to OnError
+         (mutable variables / stream actors)
 ```
 
 ### Core Types (src/Types.fs)
 
-- **Notification<'T, 'E>**: Rx grammar atoms (`OnNext of 'T`, `OnError of 'E`, `OnCompleted`)
+- **Notification<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of string`, `OnCompleted`)
 - **Handle**: Resource cleanup handle with `Dispose: unit -> unit`
-- **Handler<'T, 'E>**: Receives notifications via `Notify` callback
-- **Factor<'T, 'E>**: Lazy push-based stream with `Subscribe: Handler<'T, 'E> -> Handle`
+- **Handler<'T>**: Receives notifications via `Notify` callback
+- **Factor<'T>**: Lazy push-based stream with `Subscribe: Handler<'T> -> Handle`
 
 ### Module Structure
 
@@ -56,22 +48,34 @@ Level 3: Process crash       - Untyped, caught by monitor, converted to OnError
 - **src/Types.fs**: Core types (Factor, Handler, Notification, Handle)
 - **src/SafeHandler.fs**: Enforces Rx grammar (OnNext*, then optionally OnError or OnCompleted)
 - **src/Create.fs**: Creation operators (`create`, `single`, `empty`, `never`, `fail`, `ofList`, `defer`)
-- **src/Transform.fs**: Transform operators (`map`, `mapi`, `flatMap`, `flatMapi`, `concatMap`, `concatMapi`, `mergeInner`, `concatInner`, `switchInner`, `switchMap`, `switchMapi`, `tap`, `startWith`, `pairwise`, `scan`, `reduce`, `groupBy`)
+- **src/Process.fs**: BEAM process management FFI, stream actor FFI (`spawnLinked`, `trapExits`, `startStream`, `streamSubscribe`, etc.)
+- **src/Transform.fs**: Transform operators (`map`, `mapi`, `flatMap`, `flatMapSpawned`, `mergeInner`, `mergeInnerSpawned`, `concatMap`, `concatMapi`, `switchInner`, `switchMap`, `switchMapi`, `tap`, `startWith`, `pairwise`, `scan`, `reduce`, `groupBy`)
 - **src/Filter.fs**: Filter operators (`filter`, `take`, `skip`, `takeWhile`, `skipWhile`, `choose`, `distinctUntilChanged`, `distinct`, `takeUntil`, `takeLast`, `first`, `last`, `defaultIfEmpty`, `sample`)
 - **src/Combine.fs**: Combining operators (`merge`, `merge2`, `combineLatest`, `withLatestFrom`, `zip`, `concat`, `concat2`, `amb`, `race`, `forkJoin`)
 - **src/TimeShift.fs**: Time-based operators (`timer`, `interval`, `delay`, `debounce`, `throttle`, `timeout`)
-- **src/Subject.fs**: Subjects (`subject`, `singleSubject`, `publish`, `share`)
-- **src/Error.fs**: Error handling (`retry`, `catch`, `mapError`)
+- **src/Stream.fs**: Streams (`stream`, `singleStream`, `publish`, `share`) — `stream`/`singleStream` are BEAM actor processes
+- **src/Error.fs**: Error handling (`retry`, `catch`)
 - **src/Interop.fs**: Interop helpers (`tapSend`)
-- **src/Process.fs**: BEAM process management FFI (`spawnLinked`, `monitorProcess`, `demonitorProcess`, `killProcess`, `trapExits`)
 - **src/Actor.fs**: CPS-based actor computation expression (`actor { ... }` with `spawn`, `send`, `recv`)
-- **src/Builder.fs**: Computation expression builder (`factor { ... }` syntax with `bind`, `ret`, `combine`, `forEach`)
+- **src/Builder.fs**: Computation expression builder (`factor { ... }` — `let!` uses `flatMapSpawned` for supervision)
+
+### Erlang Modules
+
+- **src/erl/factor_actor.erl**: Process spawning, `child_loop`, exit/child handler registries
+- **src/erl/factor_timer.erl**: Timer scheduling via `erlang:send_after`
+- **src/erl/factor_stream.erl**: Stream actor processes (multicast + single-subscriber with buffering)
+
+### Two Composition Modes
+
+**Pipe operators** (`flatMap`, `mergeInner`) subscribe inline in the same process. Safe for mutable state (process dictionary, `Dictionary`, `HashSet`). No supervision boundaries.
+
+**Computation expression** (`factor { let! ... }`) uses `flatMapSpawned`/`mergeInnerSpawned` to spawn linked child processes. Creates supervision boundaries but must NOT reference parent process dictionary state from the CE body.
 
 ### State Management
 
-The F# version uses **mutable variables** for state management. On BEAM (via Fable.Beam), these are backed by the process dictionary. This simplifies the code compared to the original Gleam actor-based approach since all stateful operators run synchronously in the subscriber's process context.
+Most operators use **mutable variables** backed by the process dictionary. Streams (`stream()`, `singleStream()`) and `groupBy` sub-groups use **actor processes** to encapsulate state, enabling cross-process subscription.
 
-Time-based operators use Erlang FFI via `Fable.Core.Emit` for `factor_timer:schedule` and `factor_timer:cancel`.
+Time-based operators use Erlang FFI via `factor_timer:schedule` and `factor_timer:cancel`.
 
 ### Rx Contract
 
@@ -80,8 +84,12 @@ The library enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 - After a terminal event (OnError or OnCompleted), no further events are delivered
 - `SafeHandler.wrap` handles this enforcement
 
+### Message Dispatch
+
+Processes subscribing to streams must handle `{factor_child, Ref, Notification}` messages. Processes using timers must handle `{factor_timer, Ref, Callback}`. Both `process_timers` (subscriber loop) and `child_loop` (spawned child loop) handle these.
+
 ## Dependencies
 
-- .NET SDK 8+
+- .NET SDK 10+
 - Fable.Core 5.0.0-beta.5
 - Fable.Beam compiler (local, at `../fable/fable-beam/src/Fable.Cli`)
