@@ -3,10 +3,11 @@
 /// These operators combine multiple Factor sequences.
 module Factor.Combine
 
+open System.Collections.Generic
 open Factor.Types
 
 /// Merges multiple factor sequences into one.
-let merge (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
+let merge (sources: Factor<'T> list) : Factor<'T> =
     { Subscribe =
         fun handler ->
             match sources with
@@ -45,14 +46,14 @@ let merge (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
                             h.Dispose() } }
 
 /// Merge two factors.
-let merge2 (source1: Factor<'a, 'e>) (source2: Factor<'a, 'e>) : Factor<'a, 'e> = merge [ source1; source2 ]
+let merge2 (source1: Factor<'T>) (source2: Factor<'T>) : Factor<'T> = merge [ source1; source2 ]
 
 /// Combines the latest values from two factors using a combiner function.
-let combineLatest (combiner: 'a -> 'b -> 'c) (source1: Factor<'a, 'e>) (source2: Factor<'b, 'e>) : Factor<'c, 'e> =
+let combineLatest (combiner: 'T -> 'U -> 'V) (source1: Factor<'T>) (source2: Factor<'U>) : Factor<'V> =
     { Subscribe =
         fun handler ->
-            let mutable left: 'a option = None
-            let mutable right: 'b option = None
+            let mutable left: 'T option = None
+            let mutable right: 'U option = None
             let mutable leftDone = false
             let mutable rightDone = false
             let mutable stopped = false
@@ -108,13 +109,13 @@ let combineLatest (combiner: 'a -> 'b -> 'c) (source1: Factor<'a, 'e>) (source2:
 
 /// Combines source with the latest value from another factor.
 let withLatestFrom
-    (combiner: 'a -> 'b -> 'c)
-    (sampler: Factor<'b, 'e>)
-    (source: Factor<'a, 'e>)
-    : Factor<'c, 'e> =
+    (combiner: 'T -> 'U -> 'V)
+    (sampler: Factor<'U>)
+    (source: Factor<'T>)
+    : Factor<'V> =
     { Subscribe =
         fun handler ->
-            let mutable latest: 'b option = None
+            let mutable latest: 'U option = None
             let mutable stopped = false
 
             let samplerH =
@@ -153,11 +154,11 @@ let withLatestFrom
                     samplerHandle.Dispose() } }
 
 /// Pairs elements from two factors by index.
-let zip (combiner: 'a -> 'b -> 'c) (source1: Factor<'a, 'e>) (source2: Factor<'b, 'e>) : Factor<'c, 'e> =
+let zip (combiner: 'T -> 'U -> 'V) (source1: Factor<'T>) (source2: Factor<'U>) : Factor<'V> =
     { Subscribe =
         fun handler ->
-            let leftQueue = System.Collections.Generic.Queue<'a>()
-            let rightQueue = System.Collections.Generic.Queue<'b>()
+            let leftQueue = Queue<'T>()
+            let rightQueue = Queue<'U>()
             let mutable leftDone = false
             let mutable rightDone = false
             let mutable stopped = false
@@ -222,15 +223,15 @@ let zip (combiner: 'a -> 'b -> 'c) (source1: Factor<'a, 'e>) (source2: Factor<'b
                     handle2.Dispose() } }
 
 /// Concatenates multiple factors sequentially.
-let concat (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
+let concat (sources: Factor<'T> list) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
             // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable subscribeTo: Factor<'a, 'e> list -> unit = fun _ -> ()
+            let mutable subscribeTo: Factor<'T> list -> unit = fun _ -> ()
 
             subscribeTo <-
-                fun (remaining: Factor<'a, 'e> list) ->
+                fun (remaining: Factor<'T> list) ->
                     match remaining with
                     | [] -> handler.Notify(OnCompleted)
                     | current :: rest ->
@@ -250,10 +251,10 @@ let concat (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
             { Dispose = fun () -> disposed <- true } }
 
 /// Concatenates two factors.
-let concat2 (source1: Factor<'a, 'e>) (source2: Factor<'a, 'e>) : Factor<'a, 'e> = concat [ source1; source2 ]
+let concat2 (source1: Factor<'T>) (source2: Factor<'T>) : Factor<'T> = concat [ source1; source2 ]
 
 /// Returns the factor that emits first.
-let amb (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
+let amb (sources: Factor<'T> list) : Factor<'T> =
     { Subscribe =
         fun handler ->
             match sources with
@@ -305,10 +306,10 @@ let amb (sources: Factor<'a, 'e> list) : Factor<'a, 'e> =
                             h.Dispose() } }
 
 /// Alias for amb.
-let race (sources: Factor<'a, 'e> list) : Factor<'a, 'e> = amb sources
+let race (sources: Factor<'T> list) : Factor<'T> = amb sources
 
 /// Waits for all factors to complete, then emits a list of their last values.
-let forkJoin (sources: Factor<'a, string> list) : Factor<'a list, string> =
+let forkJoin (sources: Factor<'T> list) : Factor<'T list> =
     { Subscribe =
         fun handler ->
             match sources with
@@ -318,7 +319,7 @@ let forkJoin (sources: Factor<'a, string> list) : Factor<'a list, string> =
                 emptyHandle ()
             | _ ->
                 let total = sources.Length
-                let values = System.Collections.Generic.Dictionary<int, 'a>()
+                let values = Dictionary<int, 'T>()
                 let mutable completedCount = 0
                 let mutable stopped = false
 

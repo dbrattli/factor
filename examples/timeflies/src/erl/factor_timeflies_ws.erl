@@ -42,6 +42,18 @@ websocket_info({factor_timer, _Ref, Callback}, State) ->
     Callback(ok),
     {ok, State};
 
+%% Handle child notifications from stream actors
+websocket_info({factor_child, Ref, Notification}, State) ->
+    case get(factor_children) of
+        undefined -> ok;
+        Map ->
+            case maps:find(Ref, Map) of
+                {ok, Handler} -> Handler(Notification);
+                error -> ok
+            end
+    end,
+    {ok, State};
+
 %% Handle send messages from the Rx pipeline
 websocket_info({send, Text}, State) ->
     {[{text, Text}], State};

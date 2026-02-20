@@ -7,7 +7,7 @@ open Factor.Types
 
 /// Resubscribes to the source factor when an error occurs,
 /// up to the specified number of retries.
-let retry (maxRetries: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let retry (maxRetries: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable retryCount = 0
@@ -61,8 +61,7 @@ let retry (maxRetries: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                     | None -> () } }
 
 /// On error, switches to a fallback factor returned by the handler.
-/// Can change the error type via the fallback.
-let catch (errorHandler: 'e1 -> Factor<'a, 'e2>) (source: Factor<'a, 'e1>) : Factor<'a, 'e2> =
+let catch (errorHandler: string -> Factor<'T>) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable currentHandle: Handle option = None
@@ -109,17 +108,3 @@ let catch (errorHandler: 'e1 -> Factor<'a, 'e2>) (source: Factor<'a, 'e1>) : Fac
                     match currentHandle with
                     | Some h -> h.Dispose()
                     | None -> () } }
-
-/// Transform the error type of a Factor.
-let mapError (f: 'e1 -> 'e2) (source: Factor<'a, 'e1>) : Factor<'a, 'e2> =
-    { Subscribe =
-        fun handler ->
-            let upstream =
-                { Notify =
-                    fun n ->
-                        match n with
-                        | OnNext x -> handler.Notify(OnNext x)
-                        | OnError e -> handler.Notify(OnError(f e))
-                        | OnCompleted -> handler.Notify(OnCompleted) }
-
-            source.Subscribe(upstream) }
