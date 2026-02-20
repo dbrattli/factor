@@ -10,7 +10,7 @@
     filter_test,
     combine_test,
     timeshift_test,
-    subject_test,
+    stream_test,
     error_test,
     builder_test,
     new_operators_test,

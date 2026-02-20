@@ -3,10 +3,11 @@
 /// These operators filter elements from a Factor sequence.
 module Factor.Filter
 
+open System.Collections.Generic
 open Factor.Types
 
 /// Filters elements based on a predicate.
-let filter (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let filter (predicate: 'T -> bool) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let upstream =
@@ -21,7 +22,7 @@ let filter (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Applies a function that returns Option. Emits Some values, skips None.
-let choose (chooser: 'a -> 'b option) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let choose (chooser: 'T -> 'U option) (source: Factor<'T>) : Factor<'U> =
     { Subscribe =
         fun handler ->
             let upstream =
@@ -38,7 +39,7 @@ let choose (chooser: 'a -> 'b option) (source: Factor<'a, 'e>) : Factor<'b, 'e> 
             source.Subscribe(upstream) }
 
 /// Returns the first N elements from the source.
-let take (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let take (count: int) (source: Factor<'T>) : Factor<'T> =
     if count <= 0 then
         { Subscribe =
             fun handler ->
@@ -66,7 +67,7 @@ let take (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                 source.Subscribe(upstream) }
 
 /// Skips the first N elements from the source.
-let skip (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let skip (count: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable remaining = count
@@ -86,7 +87,7 @@ let skip (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Takes elements while predicate returns true.
-let takeWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let takeWhile (predicate: 'T -> bool) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable taking = true
@@ -108,7 +109,7 @@ let takeWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> 
             source.Subscribe(upstream) }
 
 /// Skips elements while predicate returns true.
-let skipWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let skipWhile (predicate: 'T -> bool) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable skipping = true
@@ -130,10 +131,10 @@ let skipWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> 
             source.Subscribe(upstream) }
 
 /// Emits elements that are different from the previous element.
-let distinctUntilChanged (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let distinctUntilChanged (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let mutable last: 'a option = None
+            let mutable last: 'T option = None
 
             let upstream =
                 { Notify =
@@ -154,7 +155,7 @@ let distinctUntilChanged (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Returns elements until the other factor emits.
-let takeUntil (other: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let takeUntil (other: Factor<'U>) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable stopped = false
@@ -195,10 +196,10 @@ let takeUntil (other: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> 
                     otherHandle.Dispose() } }
 
 /// Returns the last N elements from the source.
-let takeLast (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let takeLast (count: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let buffer = System.Collections.Generic.Queue<'a>()
+            let buffer = Queue<'T>()
 
             let upstream =
                 { Notify =
@@ -219,7 +220,7 @@ let takeLast (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Takes only the first element. Errors if source is empty.
-let first (source: Factor<'a, string>) : Factor<'a, string> =
+let first (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable gotValue = false
@@ -239,10 +240,10 @@ let first (source: Factor<'a, string>) : Factor<'a, string> =
             source.Subscribe(upstream) }
 
 /// Takes only the last element. Errors if source is empty.
-let last (source: Factor<'a, string>) : Factor<'a, string> =
+let last (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let mutable latest: 'a option = None
+            let mutable latest: 'T option = None
 
             let upstream =
                 { Notify =
@@ -260,7 +261,7 @@ let last (source: Factor<'a, string>) : Factor<'a, string> =
             source.Subscribe(upstream) }
 
 /// Emits a default value if the source completes without emitting.
-let defaultIfEmpty (defaultValue: 'a) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let defaultIfEmpty (defaultValue: 'T) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable hasValue = false
@@ -282,10 +283,10 @@ let defaultIfEmpty (defaultValue: 'a) (source: Factor<'a, 'e>) : Factor<'a, 'e> 
             source.Subscribe(upstream) }
 
 /// Samples the source when the sampler emits.
-let sample (sampler: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let sample (sampler: Factor<'U>) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let mutable latest: 'a option = None
+            let mutable latest: 'T option = None
             let mutable sourceDone = false
             let mutable samplerDone = false
 
@@ -328,10 +329,10 @@ let sample (sampler: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                     samplerHandle.Dispose() } }
 
 /// Filters out all duplicate values (not just consecutive).
-let distinct (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let distinct (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let seen = System.Collections.Generic.HashSet<'a>()
+            let seen = HashSet<'T>()
 
             let upstream =
                 { Notify =

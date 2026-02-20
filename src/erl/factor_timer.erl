@@ -27,11 +27,8 @@ cancel({Ref, TimerRef}) ->
 %%
 %% Handles:
 %% - {factor_timer, Ref, Callback} - timer callbacks
-%% - {factor_child, Id, Notification} - child process messages
-%% - {'EXIT', Pid, Reason} - linked process exit signals (requires trap_exit)
-%%
-%% ChildHandler and ExitHandler are called when child/exit messages arrive.
-%% Pass 'undefined' for handlers you don't need.
+%% - {factor_child, Ref, Notification} - child process messages (registry-based)
+%% - {'EXIT', Pid, Reason} - linked process exit signals (registry-based, normal filtered)
 %%
 %% Use this as a timer-aware replacement for timer:sleep/1.
 process_timers(TimeoutMs) ->
@@ -47,18 +44,35 @@ process_timers_loop(EndTime) ->
                 {factor_timer, _Ref, Callback} ->
                     Callback(ok),
                     process_timers_loop(EndTime);
-                {factor_child, Id, Notification} ->
-                    %% Forward child messages to the process dictionary handler
-                    case get(factor_child_handler) of
+                {factor_child, Ref, Notification} ->
+                    %% Registry-based dispatching: look up handler by ref
+                    case get(factor_children) of
                         undefined -> ok;
-                        Handler -> Handler({Id, Notification})
+                        Map ->
+                            case Map of
+                                #{Ref := Handler} ->
+                                    Handler(Notification);
+                                #{} ->
+                                    ok
+                            end
                     end,
                     process_timers_loop(EndTime);
                 {'EXIT', Pid, Reason} ->
-                    %% Forward EXIT signals to the process dictionary handler
-                    case get(factor_exit_handler) of
-                        undefined -> ok;
-                        Handler -> Handler({Pid, Reason})
+                    %% Registry-based dispatching: look up handler by pid
+                    %% Normal exits are filtered (child completed successfully)
+                    case Reason of
+                        normal -> ok;
+                        _ ->
+                            case get(factor_exits) of
+                                undefined -> ok;
+                                Map ->
+                                    case Map of
+                                        #{Pid := Handler} ->
+                                            Handler(Reason);
+                                        #{} ->
+                                            ok
+                                    end
+                            end
                     end,
                     process_timers_loop(EndTime)
             after min(Remaining, 1) ->

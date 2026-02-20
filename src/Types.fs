@@ -4,14 +4,14 @@
 /// - Notification: The atoms of the Rx grammar (OnNext, OnError, OnCompleted)
 /// - Handle: Resource cleanup handle
 /// - Handler: Receives notifications from a Factor
-/// - Factor: Lazy push-based stream with typed errors
+/// - Factor: Lazy push-based stream with string errors
 module Factor.Types
 
 /// Notification represents the three types of events in the Rx grammar:
 /// OnNext* (OnError | OnCompleted)?
-type Notification<'T, 'E> =
+type Notification<'T> =
     | OnNext of 'T
-    | OnError of 'E
+    | OnError of string
     | OnCompleted
 
 /// Handle represents a resource that can be cleaned up.
@@ -28,10 +28,10 @@ let compositeHandle (handles: Handle list) : Handle =
                 h.Dispose() }
 
 /// Handler receives notifications from a Factor.
-type Handler<'T, 'E> = { Notify: Notification<'T, 'E> -> unit }
+type Handler<'T> = { Notify: Notification<'T> -> unit }
 
 /// Create a handler from three callback functions.
-let makeHandler (onNext: 'T -> unit) (onError: 'E -> unit) (onCompleted: unit -> unit) : Handler<'T, 'E> =
+let makeHandler (onNext: 'T -> unit) (onError: string -> unit) (onCompleted: unit -> unit) : Handler<'T> =
     { Notify =
         fun n ->
             match n with
@@ -40,7 +40,7 @@ let makeHandler (onNext: 'T -> unit) (onError: 'E -> unit) (onCompleted: unit ->
             | OnCompleted -> onCompleted () }
 
 /// Create a handler that only handles OnNext events.
-let makeNextHandler (onNext: 'T -> unit) : Handler<'T, 'E> =
+let makeNextHandler (onNext: 'T -> unit) : Handler<'T> =
     { Notify =
         fun n ->
             match n with
@@ -48,16 +48,16 @@ let makeNextHandler (onNext: 'T -> unit) : Handler<'T, 'E> =
             | _ -> () }
 
 /// Send an OnNext notification to a handler.
-let onNext (handler: Handler<'T, 'E>) (value: 'T) : unit = handler.Notify(OnNext value)
+let onNext (handler: Handler<'T>) (value: 'T) : unit = handler.Notify(OnNext value)
 
 /// Send an OnError notification to a handler.
-let onError (handler: Handler<'T, 'E>) (error: 'E) : unit = handler.Notify(OnError error)
+let onError (handler: Handler<'T>) (error: string) : unit = handler.Notify(OnError error)
 
 /// Send an OnCompleted notification to a handler.
-let onCompleted (handler: Handler<'T, 'E>) : unit = handler.Notify(OnCompleted)
+let onCompleted (handler: Handler<'T>) : unit = handler.Notify(OnCompleted)
 
 /// Forward a notification to a handler.
-let notify (handler: Handler<'T, 'E>) (notification: Notification<'T, 'E>) : unit = handler.Notify(notification)
+let notify (handler: Handler<'T>) (notification: Notification<'T>) : unit = handler.Notify(notification)
 
-/// Factor is a lazy push-based stream with typed errors.
-type Factor<'T, 'E> = { Subscribe: Handler<'T, 'E> -> Handle }
+/// Factor is a lazy push-based stream with string errors.
+type Factor<'T> = { Subscribe: Handler<'T> -> Handle }

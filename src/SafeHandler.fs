@@ -9,7 +9,7 @@ module Factor.SafeHandler
 open Factor.Types
 
 /// Wrap a handler with Rx grammar enforcement.
-let wrap (handler: Handler<'T, 'E>) (handle: Handle) : Handler<'T, 'E> =
+let wrap (handler: Handler<'T>) (handle: Handle) : Handler<'T> =
     let mutable stopped = false
 
     { Notify =
@@ -28,6 +28,6 @@ let wrap (handler: Handler<'T, 'E>) (handle: Handle) : Handler<'T, 'E> =
 
 /// Create a handler from a notification handler function,
 /// wrapped with Rx grammar enforcement.
-let fromNotify (notifyFn: Notification<'T, 'E> -> unit) (handle: Handle) : Handler<'T, 'E> =
+let fromNotify (notifyFn: Notification<'T> -> unit) (handle: Handle) : Handler<'T> =
     let handler = { Notify = notifyFn }
     wrap handler handle

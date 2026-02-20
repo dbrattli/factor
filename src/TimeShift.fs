@@ -17,7 +17,7 @@ let private timerSchedule (ms: int) (callback: unit -> unit) : obj = nativeOnly
 let private timerCancel (timer: obj) : unit = nativeOnly
 
 /// Creates a factor that emits 0 after the specified delay, then completes.
-let timer (delayMs: int) : Factor<int, 'e> =
+let timer (delayMs: int) : Factor<int> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
@@ -33,7 +33,7 @@ let timer (delayMs: int) : Factor<int, 'e> =
             { Dispose = fun () -> disposed <- true } }
 
 /// Creates a factor that emits incrementing integers at regular intervals.
-let interval (periodMs: int) : Factor<int, 'e> =
+let interval (periodMs: int) : Factor<int> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
@@ -60,7 +60,7 @@ let interval (periodMs: int) : Factor<int, 'e> =
             { Dispose = fun () -> disposed <- true } }
 
 /// Delays each emission from the source by the specified time.
-let delay (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let delay (ms: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
@@ -102,11 +102,11 @@ let delay (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                     sourceHandle.Dispose() } }
 
 /// Emits a value only after the specified time has passed without another emission.
-let debounce (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let debounce (ms: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
-            let mutable latest: 'a option = None
+            let mutable latest: 'T option = None
             let mutable currentTimer: obj option = None
 
             let cancelTimer () =
@@ -158,12 +158,12 @@ let debounce (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                     sourceHandle.Dispose() } }
 
 /// Rate limits emissions to at most one per specified period.
-let throttle (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let throttle (ms: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false
             let mutable inWindow = false
-            let mutable latest: 'a option = None
+            let mutable latest: 'T option = None
             let mutable currentTimer: obj option = None
 
             let cancelTimer () =
@@ -226,7 +226,7 @@ let throttle (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
                     sourceHandle.Dispose() } }
 
 /// Errors if no emission occurs within the specified timeout period.
-let timeout (ms: int) (source: Factor<'a, string>) : Factor<'a, string> =
+let timeout (ms: int) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable disposed = false

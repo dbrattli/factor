@@ -52,7 +52,7 @@ Level 3: Process crash       - Untyped, caught by monitor, converted to OnError
 
 ### Module Structure
 
-- **src/Factor.fs**: Main API facade (`Factor.Rx` module), re-exports all operators
+- **src/Factor.fs**: Main API facade (`Factor.Reactive` module), re-exports all operators
 - **src/Types.fs**: Core types (Factor, Handler, Notification, Handle)
 - **src/SafeHandler.fs**: Enforces Rx grammar (OnNext*, then optionally OnError or OnCompleted)
 - **src/Create.fs**: Creation operators (`create`, `single`, `empty`, `never`, `fail`, `ofList`, `defer`)

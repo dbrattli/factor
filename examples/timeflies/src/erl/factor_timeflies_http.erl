@@ -65,19 +65,8 @@ init(Req0, State) ->
   <div id=\"letters\"></div>
 
   <script>
-    const text = 'TIME FLIES LIKE AN ARROW';
     const container = document.getElementById('letters');
-    const letters = [];
-
-    for (let i = 0; i < text.length; i++) {
-      const span = document.createElement('span');
-      span.className = 'letter';
-      span.textContent = text[i];
-      span.style.left = '-100px';
-      span.style.top = '-100px';
-      container.appendChild(span);
-      letters.push(span);
-    }
+    const letters = {};
 
     let inCount = 0;
     let outCount = 0;
@@ -100,10 +89,18 @@ init(Req0, State) ->
     ws.onmessage = (event) => {
       inCount++;
       const data = JSON.parse(event.data);
-      if (data.index !== undefined && letters[data.index]) {
-        letters[data.index].style.left = data.x + 'px';
-        letters[data.index].style.top = data.y + 'px';
+      if (data.index === undefined) return;
+
+      let span = letters[data.index];
+      if (!span) {
+        span = document.createElement('span');
+        span.className = 'letter';
+        container.appendChild(span);
+        letters[data.index] = span;
       }
+      span.textContent = data.char;
+      span.style.left = data.x + 'px';
+      span.style.top = data.y + 'px';
     };
 
     ws.onclose = () => {

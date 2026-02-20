@@ -3,11 +3,12 @@
 /// These operators transform the elements of a Factor sequence.
 module Factor.Transform
 
+open System.Collections.Generic
 open Factor.Types
 
 /// Returns a factor whose elements are the result of invoking
 /// the mapper function on each element of the source.
-let map (mapper: 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let map (mapper: 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
     { Subscribe =
         fun handler ->
             let upstream =
@@ -22,7 +23,7 @@ let map (mapper: 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
 
 /// Returns a factor whose elements are the result of invoking
 /// the mapper function on each element and its index.
-let mapi (mapper: 'a -> int -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let mapi (mapper: 'T -> int -> 'U) (source: Factor<'T>) : Factor<'U> =
     { Subscribe =
         fun handler ->
             let mutable index = 0
@@ -47,15 +48,13 @@ let mapi (mapper: 'a -> int -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
 /// - None: Unlimited concurrency
 /// - Some(1): Sequential (equivalent to concatInner)
 /// - Some(n): At most n inner factors active at once
-let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> =
+let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'T>>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable innerCount = 0
             let mutable outerStopped = false
             let mutable disposed = false
-            let queue = System.Collections.Generic.Queue<Factor<'a, 'e>>()
-            let innerHandles = System.Collections.Generic.Dictionary<int, Handle>()
-            let mutable nextInnerId = 1
+            let queue = Queue<Factor<'T>>()
 
             let canSubscribe () =
                 match maxConcurrency with
@@ -63,12 +62,10 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>)
                 | Some max -> innerCount < max
 
             // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable subscribeToInner: Factor<'a, 'e> -> unit = fun _ -> ()
+            let mutable subscribeToInner: Factor<'T> -> unit = fun _ -> ()
 
             subscribeToInner <-
-                fun (inner: Factor<'a, 'e>) ->
-                    let innerId = nextInnerId
-                    nextInnerId <- nextInnerId + 1
+                fun (inner: Factor<'T>) ->
                     innerCount <- innerCount + 1
 
                     let innerHandler =
@@ -78,15 +75,10 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>)
                                     match n with
                                     | OnNext value -> handler.Notify(OnNext value)
                                     | OnError e ->
-                                        // Dispose all active inner subscriptions on error
-                                        for kv in innerHandles do
-                                            kv.Value.Dispose()
-
-                                        innerHandles.Clear()
+                                        disposed <- true
                                         handler.Notify(OnError e)
                                     | OnCompleted ->
                                         innerCount <- innerCount - 1
-                                        innerHandles.Remove(innerId) |> ignore
 
                                         if queue.Count > 0 then
                                             let next = queue.Dequeue()
@@ -94,8 +86,7 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>)
                                         elif outerStopped && innerCount <= 0 then
                                             handler.Notify(OnCompleted) }
 
-                    let innerHandle = inner.Subscribe(innerHandler)
-                    innerHandles.[innerId] <- innerHandle
+                    inner.Subscribe(innerHandler) |> ignore
 
             let outerHandler =
                 { Notify =
@@ -108,10 +99,7 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>)
                                 else
                                     queue.Enqueue(inner)
                             | OnError e ->
-                                for kv in innerHandles do
-                                    kv.Value.Dispose()
-
-                                innerHandles.Clear()
+                                disposed <- true
                                 handler.Notify(OnError e)
                             | OnCompleted ->
                                 outerStopped <- true
@@ -124,93 +112,101 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>)
             { Dispose =
                 fun () ->
                     disposed <- true
-                    outerHandle.Dispose()
+                    outerHandle.Dispose() } }
 
-                    for kv in innerHandles do
-                        kv.Value.Dispose()
-
-                    innerHandles.Clear() } }
-
-/// Flattens a Factor of Factors by concatenating in order.
-let concatInner (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> = mergeInner (Some 1) source
-
-/// Projects each element into a factor and merges the results.
-let flatMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
-    source |> map mapper |> mergeInner None
-
-/// Projects each element into a factor and concatenates in order.
-let concatMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
-    source |> map mapper |> concatInner
-
-/// Projects each element and its index into a factor and merges.
-let flatMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
-    source |> mapi mapper |> mergeInner None
-
-/// Projects each element and its index into a factor and concatenates.
-let concatMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
-    source |> mapi mapper |> concatInner
-
-/// Flattens a Factor of Factors by switching to the latest.
-let switchInner (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> =
+/// Flattens a Factor of Factors by merging inner emissions,
+/// spawning a linked child process for each inner subscription.
+///
+/// This creates a process boundary: the inner factor's Subscribe runs
+/// in a child process, so it must NOT reference parent process dictionary
+/// state (mutable variables, Dictionary, etc). Use this for the CE builder
+/// where inner factors are actor-based streams or pure computations.
+///
+/// Child processes forward notifications to the parent via sendChildMsg.
+/// Crashes in children are caught and converted to OnError.
+let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
     { Subscribe =
         fun handler ->
-            let mutable currentId = 0
-            let mutable nextId = 1
+            let parentPid = Process.selfPid ()
+            let mutable innerCount = 0
             let mutable outerStopped = false
-            let mutable hasActive = false
             let mutable disposed = false
-            let mutable currentHandle: Handle option = None
+
+            Process.trapExits ()
+
+            // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
+            let mutable subscribeToInner: Factor<'T> -> unit = fun _ -> ()
+
+            subscribeToInner <-
+                fun (inner: Factor<'T>) ->
+                    innerCount <- innerCount + 1
+                    let childRef = Process.makeRef ()
+
+                    // Register child handler in parent to receive forwarded notifications
+                    Process.registerChild
+                        childRef
+                        (fun notification ->
+                            let n = unbox<Notification<'T>> notification
+
+                            if not disposed then
+                                match n with
+                                | OnNext value -> handler.Notify(OnNext value)
+                                | OnError e ->
+                                    disposed <- true
+                                    handler.Notify(OnError e)
+                                | OnCompleted ->
+                                    innerCount <- innerCount - 1
+                                    Process.unregisterChild childRef
+
+                                    if outerStopped && innerCount <= 0 then
+                                        handler.Notify(OnCompleted))
+
+                    // Spawn linked child process for this inner subscription
+                    let childPid =
+                        Process.spawnLinked (fun () ->
+                            let mutable innerDone = false
+
+                            let innerHandler =
+                                { Notify =
+                                    fun n ->
+                                        Process.sendChildMsg parentPid childRef (box n)
+
+                                        match n with
+                                        | OnCompleted
+                                        | OnError _ ->
+                                            innerDone <- true
+                                            Process.exitNormal ()
+                                        | _ -> () }
+
+                            inner.Subscribe(innerHandler) |> ignore
+
+                            if not innerDone then
+                                Process.childLoop ())
+
+                    // Register exit handler so crashes become OnError
+                    Process.registerExit
+                        childPid
+                        (fun reason ->
+                            if not disposed then
+                                innerCount <- innerCount - 1
+                                Process.unregisterChild childRef
+                                Process.unregisterExit childPid
+                                disposed <- true
+                                handler.Notify(OnError(Process.formatReason reason)))
 
             let outerHandler =
                 { Notify =
                     fun n ->
                         if not disposed then
                             match n with
-                            | OnNext innerFactor ->
-                                // Dispose previous inner
-                                match currentHandle with
-                                | Some h -> h.Dispose()
-                                | None -> ()
-
-                                let id = nextId
-                                nextId <- nextId + 1
-                                currentId <- id
-                                hasActive <- true
-
-                                let innerHandler =
-                                    { Notify =
-                                        fun innerN ->
-                                            if not disposed then
-                                                match innerN with
-                                                | OnNext value ->
-                                                    if id = currentId then
-                                                        handler.Notify(OnNext value)
-                                                | OnError e ->
-                                                    match currentHandle with
-                                                    | Some h -> h.Dispose()
-                                                    | None -> ()
-
-                                                    handler.Notify(OnError e)
-                                                | OnCompleted ->
-                                                    if id = currentId then
-                                                        if outerStopped then
-                                                            handler.Notify(OnCompleted)
-                                                        else
-                                                            hasActive <- false
-                                                            currentHandle <- None }
-
-                                let innerH = innerFactor.Subscribe(innerHandler)
-                                currentHandle <- Some innerH
+                            | OnNext inner -> subscribeToInner inner
                             | OnError e ->
-                                match currentHandle with
-                                | Some h -> h.Dispose()
-                                | None -> ()
-
+                                disposed <- true
                                 handler.Notify(OnError e)
                             | OnCompleted ->
                                 outerStopped <- true
 
-                                if not hasActive then
+                                if innerCount <= 0 then
                                     handler.Notify(OnCompleted) }
 
             let outerHandle = source.Subscribe(outerHandler)
@@ -218,22 +214,94 @@ let switchInner (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> =
             { Dispose =
                 fun () ->
                     disposed <- true
-                    outerHandle.Dispose()
+                    outerHandle.Dispose() } }
 
-                    match currentHandle with
-                    | Some h -> h.Dispose()
-                    | None -> () } }
+/// Projects each element into a factor and merges with process spawning.
+/// Each inner runs in its own linked child process (supervision boundary).
+let flatMapSpawned (mapper: 'T -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
+    source |> map mapper |> mergeInnerSpawned
+
+/// Flattens a Factor of Factors by concatenating in order.
+let concatInner (source: Factor<Factor<'T>>) : Factor<'T> = mergeInner (Some 1) source
+
+/// Projects each element into a factor and merges the results.
+let flatMap (mapper: 'T -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
+    source |> map mapper |> mergeInner None
+
+/// Projects each element into a factor and concatenates in order.
+let concatMap (mapper: 'T -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
+    source |> map mapper |> concatInner
+
+/// Projects each element and its index into a factor and merges.
+let flatMapi (mapper: 'T -> int -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
+    source |> mapi mapper |> mergeInner None
+
+/// Projects each element and its index into a factor and concatenates.
+let concatMapi (mapper: 'T -> int -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
+    source |> mapi mapper |> concatInner
+
+/// Flattens a Factor of Factors by switching to the latest.
+/// Only notifications from the most recent inner factor are forwarded.
+let switchInner (source: Factor<Factor<'T>>) : Factor<'T> =
+    { Subscribe =
+        fun handler ->
+            let mutable outerStopped = false
+            let mutable disposed = false
+            let mutable currentId = 0
+            let mutable hasInner = false
+
+            let outerHandler =
+                { Notify =
+                    fun n ->
+                        if not disposed then
+                            match n with
+                            | OnNext innerFactor ->
+                                currentId <- currentId + 1
+                                let myId = currentId
+                                hasInner <- true
+
+                                let innerHandler =
+                                    { Notify =
+                                        fun n ->
+                                            if not disposed && currentId = myId then
+                                                match n with
+                                                | OnNext value -> handler.Notify(OnNext value)
+                                                | OnError e ->
+                                                    disposed <- true
+                                                    handler.Notify(OnError e)
+                                                | OnCompleted ->
+                                                    hasInner <- false
+
+                                                    if outerStopped then
+                                                        handler.Notify(OnCompleted) }
+
+                                innerFactor.Subscribe(innerHandler) |> ignore
+                            | OnError e ->
+                                disposed <- true
+                                handler.Notify(OnError e)
+                            | OnCompleted ->
+                                outerStopped <- true
+
+                                if not hasInner then
+                                    handler.Notify(OnCompleted) }
+
+            let outerHandle = source.Subscribe(outerHandler)
+
+            { Dispose =
+                fun () ->
+                    disposed <- true
+                    outerHandle.Dispose() } }
 
 /// Projects each element into a factor and switches to the latest.
-let switchMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let switchMap (mapper: 'T -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
     source |> map mapper |> switchInner
 
 /// Projects each element and its index into a factor and switches to latest.
-let switchMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let switchMapi (mapper: 'T -> int -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
     source |> mapi mapper |> switchInner
 
 /// Performs a side effect for each emission without transforming.
-let tap (effect: 'a -> unit) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let tap (effect: 'T -> unit) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let upstream =
@@ -249,7 +317,7 @@ let tap (effect: 'a -> unit) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Prepends values before the source emissions.
-let startWith (values: 'a list) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let startWith (values: 'T list) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             for v in values do
@@ -258,10 +326,10 @@ let startWith (values: 'a list) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
             source.Subscribe(handler) }
 
 /// Emits consecutive pairs of values.
-let pairwise (source: Factor<'a, 'e>) : Factor<'a * 'a, 'e> =
+let pairwise (source: Factor<'T>) : Factor<'T * 'T> =
     { Subscribe =
         fun handler ->
-            let mutable prev: 'a option = None
+            let mutable prev: 'T option = None
 
             let upstream =
                 { Notify =
@@ -279,7 +347,7 @@ let pairwise (source: Factor<'a, 'e>) : Factor<'a * 'a, 'e> =
             source.Subscribe(upstream) }
 
 /// Applies an accumulator function over the source, emitting each intermediate result.
-let scan (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
     { Subscribe =
         fun handler ->
             let mutable acc = initial
@@ -297,7 +365,7 @@ let scan (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) : 
             source.Subscribe(upstream) }
 
 /// Applies an accumulator function over the source, emitting only the final value.
-let reduce (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
+let reduce (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
     { Subscribe =
         fun handler ->
             let mutable acc = initial
@@ -315,13 +383,17 @@ let reduce (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) 
             source.Subscribe(upstream) }
 
 /// Groups elements by key, returning a factor of grouped factors.
-let groupBy (keySelector: 'a -> 'k) (source: Factor<'a, 'e>) : Factor<'k * Factor<'a, 'e>, 'e> =
+///
+/// Each group is backed by a singleStream actor process, so group
+/// sub-factors can be subscribed from any process (including CE children).
+/// The groupBy operator maintains a key→streamPid map; all buffering
+/// and subscriber management is handled by the stream actors.
+let groupBy (keySelector: 'T -> 'K) (source: Factor<'T>) : Factor<'K * Factor<'T>> =
     { Subscribe =
         fun handler ->
-            let groups = System.Collections.Generic.Dictionary<'k, Handler<'a, 'e> list>()
-            let buffers = System.Collections.Generic.Dictionary<'k, 'a list>()
-            let emittedKeys = System.Collections.Generic.HashSet<'k>()
-            let mutable terminated = false
+            // Map from key to (streamPid, groupHandler) — streamPid for routing,
+            // groupHandler for sending notifications to the stream actor
+            let streams = Dictionary<'K, obj * (Notification<'T> -> unit)>()
 
             let upstream =
                 { Notify =
@@ -329,54 +401,54 @@ let groupBy (keySelector: 'a -> 'k) (source: Factor<'a, 'e>) : Factor<'k * Facto
                         match n with
                         | OnNext x ->
                             let key = keySelector x
-                            let isNew = emittedKeys.Add(key)
+                            let isNew = not (streams.ContainsKey(key))
 
                             if isNew then
-                                let groupFactor: Factor<'a, 'e> =
+                                // Spawn a singleStream actor for this group
+                                let streamPid = Process.startSingleStream ()
+
+                                let notify (notification: Notification<'T>) =
+                                    match notification with
+                                    | OnNext _ -> Process.streamNotify streamPid (box notification)
+                                    | OnError _
+                                    | OnCompleted -> Process.streamNotifyTerminal streamPid (box notification)
+
+                                streams.[key] <- (streamPid, notify)
+
+                                // Build the group factor backed by the stream actor
+                                let groupFactor: Factor<'T> =
                                     { Subscribe =
                                         fun groupHandler ->
-                                            // Flush buffer
-                                            match buffers.TryGetValue(key) with
-                                            | true, buf ->
-                                                for v in buf do
-                                                    groupHandler.Notify(OnNext v)
+                                            let ref = Process.makeRef ()
 
-                                                buffers.Remove(key) |> ignore
-                                            | _ -> ()
+                                            Process.registerChild
+                                                ref
+                                                (fun notification ->
+                                                    let gn = unbox<Notification<'T>> notification
+                                                    groupHandler.Notify(gn))
 
-                                            if terminated then
-                                                groupHandler.Notify(OnCompleted)
+                                            Process.streamSubscribe streamPid ref
 
-                                            // Add subscriber
-                                            match groups.TryGetValue(key) with
-                                            | true, subs -> groups.[key] <- groupHandler :: subs
-                                            | _ -> groups.[key] <- [ groupHandler ]
-
-                                            emptyHandle () }
+                                            { Dispose =
+                                                fun () ->
+                                                    Process.unregisterChild ref
+                                                    Process.streamUnsubscribe streamPid ref } }
 
                                 handler.Notify(OnNext(key, groupFactor))
 
-                            // Forward to group subscribers or buffer
-                            match groups.TryGetValue(key) with
-                            | true, subs when subs.Length > 0 ->
-                                for sub in subs do
-                                    sub.Notify(OnNext x)
-                            | _ ->
-                                match buffers.TryGetValue(key) with
-                                | true, buf -> buffers.[key] <- buf @ [ x ]
-                                | _ -> buffers.[key] <- [ x ]
+                            // Route value to the group's stream actor
+                            let (_pid, notify) = streams.[key]
+                            notify (OnNext x)
                         | OnError e ->
-                            for kv in groups do
-                                for sub in kv.Value do
-                                    sub.Notify(OnError e)
+                            for kv in streams do
+                                let (_pid, notify) = kv.Value
+                                notify (OnError e)
 
                             handler.Notify(OnError e)
                         | OnCompleted ->
-                            terminated <- true
-
-                            for kv in groups do
-                                for sub in kv.Value do
-                                    sub.Notify(OnCompleted)
+                            for kv in streams do
+                                let (_pid, notify) = kv.Value
+                                notify OnCompleted
 
                             handler.Notify(OnCompleted) }
 

@@ -7,7 +7,7 @@ open Factor.Types
 
 /// Sends each emitted value as a side effect while passing through to downstream.
 /// This is a general-purpose "tee" for sending values somewhere.
-let tapSend (send: 'a -> unit) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
+let tapSend (send: 'T -> unit) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let upstream =

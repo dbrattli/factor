@@ -1,7 +1,7 @@
 /// Factor - Composable Actors for BEAM via Fable
 ///
 /// Main API facade module that re-exports all public types and operators.
-module Factor.Rx
+module Factor.Reactive
 
 open Factor.Types
 
@@ -9,10 +9,10 @@ open Factor.Types
 // Re-export types
 // ============================================================================
 
-type Factor<'T, 'E> = Factor.Types.Factor<'T, 'E>
-type Handler<'T, 'E> = Factor.Types.Handler<'T, 'E>
+type Factor<'T> = Factor.Types.Factor<'T>
+type Handler<'T> = Factor.Types.Handler<'T>
 type Handle = Factor.Types.Handle
-type Notification<'T, 'E> = Factor.Types.Notification<'T, 'E>
+type Notification<'T> = Factor.Types.Notification<'T>
 
 // ============================================================================
 // Handler helpers
@@ -29,7 +29,7 @@ let notify handler notification = Types.notify handler notification
 // Subscribe helper
 // ============================================================================
 
-let subscribe (handler: Handler<'a, 'e>) (factor: Factor<'a, 'e>) : Handle = factor.Subscribe(handler)
+let subscribe (handler: Handler<'T>) (factor: Factor<'T>) : Handle = factor.Subscribe(handler)
 
 // ============================================================================
 // Handle helpers
@@ -118,13 +118,13 @@ let throttle ms source = TimeShift.throttle ms source
 let timeout ms source = TimeShift.timeout ms source
 
 // ============================================================================
-// Subject operators
+// Stream operators
 // ============================================================================
 
-let subject () = Subject.subject ()
-let singleSubject () = Subject.singleSubject ()
-let publish source = Subject.publish source
-let share source = Subject.share source
+let stream () = Stream.stream ()
+let singleStream () = Stream.singleStream ()
+let publish source = Stream.publish source
+let share source = Stream.share source
 
 // ============================================================================
 // Error handling operators
@@ -132,7 +132,6 @@ let share source = Subject.share source
 
 let retry maxRetries source = Error.retry maxRetries source
 let catch handler source = Error.catch handler source
-let mapError f source = Error.mapError f source
 
 // ============================================================================
 // Interop operators

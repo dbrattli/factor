@@ -1,22 +1,22 @@
 module Timeflies
 
 open Factor.Types
-open Factor.Rx
+open Factor.Reactive
 open Factor.Builder
 
-let text = "TIME FLIES LIKE AN ARROW"
+let text = "TIME FLIES LIKE AN ARROW WITH F# AND BEAM"
 
 type MousePos = { X: int; Y: int }
 
-type LetterPos = { Index: int; X: int; Y: int }
+type LetterPos = { Index: int; Char: string; X: int; Y: int }
 
 /// Sets up the reactive pipeline for the timeflies demo.
 ///
 /// Takes a sendFn that sends a JSON string to the WebSocket client.
 /// Returns (mouseObserver, disposable) where mouseObserver receives
 /// mouse position events and disposable cleans up the pipeline.
-let setupPipeline (sendFn: string -> unit) : Handler<MousePos, string> * Handle =
-    let (mouseHandler, mouseMoves) = subject ()
+let setupPipeline (sendFn: string -> unit) : Handler<MousePos> * Handle =
+    let (mouseHandler, mouseMoves) = stream ()
 
     let lettersWithIndex =
         text
@@ -26,23 +26,24 @@ let setupPipeline (sendFn: string -> unit) : Handler<MousePos, string> * Handle 
     let stream =
         lettersWithIndex
         |> ofList
-        |> flatMap (fun (index, _char) ->
+        |> flatMap (fun (index, char) ->
             factor {
                 let! (pos: MousePos) = mouseMoves |> delay (80 * index)
 
                 return
                     { Index = index
+                      Char = string char
                       X = pos.X + index * 14 + 15
                       Y = pos.Y }
             })
 
-    let outputHandler: Handler<LetterPos, string> =
+    let outputHandler: Handler<LetterPos> =
         { Notify =
             fun n ->
                 match n with
                 | OnNext lp ->
                     let json =
-                        sprintf "{\"index\":%d,\"x\":%d,\"y\":%d}" lp.Index lp.X lp.Y
+                        sprintf "{\"index\":%d,\"char\":\"%s\",\"x\":%d,\"y\":%d}" lp.Index lp.Char lp.X lp.Y
 
                     sendFn json
                 | OnError _
@@ -50,4 +51,4 @@ let setupPipeline (sendFn: string -> unit) : Handler<MousePos, string> * Handle 
 
     let handle = subscribe outputHandler stream
 
-    (mouseHandler, handle)
+    mouseHandler, handle

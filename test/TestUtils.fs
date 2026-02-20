@@ -13,18 +13,18 @@ let sleep (ms: int) : unit = failwith "native"
 
 /// Simple test result collector using mutable state.
 /// Collects OnNext values, completion status, and errors.
-type TestCollector<'a>() =
-    let mutable results: 'a list = []
+type TestCollector<'T>() =
+    let mutable results: 'T list = []
     let mutable completed = false
     let mutable errors: string list = []
-    let mutable notifications: Notification<'a, string> list = []
+    let mutable notifications: Notification<'T> list = []
 
     member _.Results = List.rev results
     member _.Completed = completed
     member _.Errors = List.rev errors
     member _.Notifications = List.rev notifications
 
-    member _.Handler: Handler<'a, string> =
+    member _.Handler: Handler<'T> =
         { Notify =
             fun n ->
                 notifications <- n :: notifications
@@ -35,7 +35,7 @@ type TestCollector<'a>() =
                 | OnCompleted -> completed <- true }
 
 /// Assertion: check equality
-let shouldEqual (expected: 'a) (actual: 'a) =
+let shouldEqual (expected: 'T) (actual: 'T) =
     if expected <> actual then
         failwithf "Expected %A but got %A" expected actual
 
@@ -50,11 +50,11 @@ let shouldBeFalse (value: bool) =
         failwith "Expected false but got true"
 
 /// Assertion: check list length
-let shouldHaveLength (expected: int) (lst: 'a list) =
+let shouldHaveLength (expected: int) (lst: 'T list) =
     if lst.Length <> expected then
         failwithf "Expected length %d but got %d" expected lst.Length
 
 /// Assertion: check that a list is not empty
-let shouldNotBeEmpty (lst: 'a list) =
+let shouldNotBeEmpty (lst: 'T list) =
     if lst.IsEmpty then
         failwith "Expected non-empty list but got empty"

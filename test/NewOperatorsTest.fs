@@ -2,7 +2,7 @@
 module Factor.NewOperatorsTest
 
 open Factor.Types
-open Factor.Rx
+open Factor.Reactive
 open Factor.TestUtils
 
 // ============================================================================
@@ -12,10 +12,12 @@ open Factor.TestUtils
 let switch_inner_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1; 2; 3 ]; Rx.ofList [ 4; 5; 6 ] ]
-    |> Rx.switchInner
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1; 2; 3 ]; Reactive.ofList [ 4; 5; 6 ] ]
+    |> Reactive.switchInner
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     // With sync sources, each inner completes before next arrives
     shouldBeTrue (tc.Results.Length >= 3)
@@ -24,10 +26,12 @@ let switch_inner_basic_test () =
 let switch_map_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.switchMap (fun x -> Rx.ofList [ x; x * 10 ])
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.switchMap (fun x -> Reactive.ofList [ x; x * 10 ])
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldBeTrue (tc.Results.Length >= 2)
     shouldBeTrue tc.Completed
@@ -35,8 +39,8 @@ let switch_map_basic_test () =
 let switch_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
-    emptyOuter |> Rx.switchInner |> Rx.subscribe tc.Handler |> ignore
+    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    emptyOuter |> Reactive.switchInner |> Reactive.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -44,10 +48,10 @@ let switch_inner_empty_outer_test () =
 let switch_map_async_cancels_previous_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.switchMap (fun x ->
-        Rx.timer (x * 30) |> Rx.map (fun _ -> x))
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.switchMap (fun x ->
+        Reactive.timer (x * 30) |> Reactive.map (fun _ -> x))
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     sleep 200
@@ -63,9 +67,9 @@ let tap_basic_test () =
     let tc = TestCollector<int>()
     let mutable sideEffects: int list = []
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.tap (fun x -> sideEffects <- sideEffects @ [ x ])
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.tap (fun x -> sideEffects <- sideEffects @ [ x ])
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -75,10 +79,10 @@ let tap_basic_test () =
 let tap_does_not_modify_values_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 10; 20; 30 ]
-    |> Rx.tap (fun _ -> ())
-    |> Rx.map (fun x -> x * 2)
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 10; 20; 30 ]
+    |> Reactive.tap (fun _ -> ())
+    |> Reactive.map (fun x -> x * 2)
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 20; 40; 60 ] tc.Results
@@ -91,9 +95,9 @@ let tap_does_not_modify_values_test () =
 let start_with_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 3; 4; 5 ]
-    |> Rx.startWith [ 1; 2 ]
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 3; 4; 5 ]
+    |> Reactive.startWith [ 1; 2 ]
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5 ] tc.Results
@@ -102,9 +106,9 @@ let start_with_basic_test () =
 let start_with_empty_prefix_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.startWith []
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.startWith []
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -113,9 +117,9 @@ let start_with_empty_prefix_test () =
 let start_with_empty_source_test () =
     let tc = TestCollector<int>()
 
-    Rx.empty ()
-    |> Rx.startWith [ 1; 2 ]
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.startWith [ 1; 2 ]
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2 ] tc.Results
@@ -128,9 +132,9 @@ let start_with_empty_source_test () =
 let pairwise_basic_test () =
     let tc = TestCollector<int * int>()
 
-    Rx.ofList [ 1; 2; 3; 4 ]
-    |> Rx.pairwise
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3; 4 ]
+    |> Reactive.pairwise
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (1, 2); (2, 3); (3, 4) ] tc.Results
@@ -139,9 +143,9 @@ let pairwise_basic_test () =
 let pairwise_single_element_test () =
     let tc = TestCollector<int * int>()
 
-    Rx.single 1
-    |> Rx.pairwise
-    |> Rx.subscribe tc.Handler
+    Reactive.single 1
+    |> Reactive.pairwise
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -150,9 +154,9 @@ let pairwise_single_element_test () =
 let pairwise_empty_test () =
     let tc = TestCollector<int * int>()
 
-    Rx.empty ()
-    |> Rx.pairwise
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.pairwise
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -165,9 +169,9 @@ let pairwise_empty_test () =
 let first_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.first
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.first
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1 ] tc.Results
@@ -176,9 +180,9 @@ let first_basic_test () =
 let first_single_element_test () =
     let tc = TestCollector<int>()
 
-    Rx.single 42
-    |> Rx.first
-    |> Rx.subscribe tc.Handler
+    Reactive.single 42
+    |> Reactive.first
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -187,9 +191,9 @@ let first_single_element_test () =
 let first_empty_errors_test () =
     let tc = TestCollector<int>()
 
-    Rx.empty ()
-    |> Rx.first
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.first
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -203,9 +207,9 @@ let first_empty_errors_test () =
 let last_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.last
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.last
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 3 ] tc.Results
@@ -214,9 +218,9 @@ let last_basic_test () =
 let last_single_element_test () =
     let tc = TestCollector<int>()
 
-    Rx.single 42
-    |> Rx.last
-    |> Rx.subscribe tc.Handler
+    Reactive.single 42
+    |> Reactive.last
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -225,9 +229,9 @@ let last_single_element_test () =
 let last_empty_errors_test () =
     let tc = TestCollector<int>()
 
-    Rx.empty ()
-    |> Rx.last
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.last
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -241,9 +245,9 @@ let last_empty_errors_test () =
 let default_if_empty_with_values_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 1; 2; 3 ]
-    |> Rx.defaultIfEmpty 99
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 1; 2; 3 ]
+    |> Reactive.defaultIfEmpty 99
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -252,9 +256,9 @@ let default_if_empty_with_values_test () =
 let default_if_empty_empty_source_test () =
     let tc = TestCollector<int>()
 
-    Rx.empty ()
-    |> Rx.defaultIfEmpty 42
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.defaultIfEmpty 42
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -267,10 +271,10 @@ let default_if_empty_empty_source_test () =
 let sample_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.interval 20
-    |> Rx.take 10
-    |> Rx.sample (Rx.interval 50 |> Rx.take 3)
-    |> Rx.subscribe tc.Handler
+    Reactive.interval 20
+    |> Reactive.take 10
+    |> Reactive.sample (Reactive.interval 50 |> Reactive.take 3)
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     sleep 300
@@ -285,8 +289,8 @@ let sample_basic_test () =
 let concat_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.concat [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
-    |> Rx.subscribe tc.Handler
+    Reactive.concat [ Reactive.ofList [ 1; 2 ]; Reactive.ofList [ 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
@@ -295,8 +299,8 @@ let concat_basic_test () =
 let concat2_test () =
     let tc = TestCollector<int>()
 
-    Rx.concat2 (Rx.ofList [ 1; 2 ]) (Rx.ofList [ 3; 4 ])
-    |> Rx.subscribe tc.Handler
+    Reactive.concat2 (Reactive.ofList [ 1; 2 ]) (Reactive.ofList [ 3; 4 ])
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4 ] tc.Results
@@ -304,15 +308,15 @@ let concat2_test () =
 
 let concat_empty_list_test () =
     let tc = TestCollector<int>()
-    Rx.concat [] |> Rx.subscribe tc.Handler |> ignore
+    Reactive.concat [] |> Reactive.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
 let concat_with_empty_sources_test () =
     let tc = TestCollector<int>()
 
-    Rx.concat [ Rx.empty (); Rx.ofList [ 1; 2 ]; Rx.empty (); Rx.ofList [ 3 ] ]
-    |> Rx.subscribe tc.Handler
+    Reactive.concat [ Reactive.empty (); Reactive.ofList [ 1; 2 ]; Reactive.empty (); Reactive.ofList [ 3 ] ]
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -321,10 +325,10 @@ let concat_with_empty_sources_test () =
 let concat_sequential_async_test () =
     let tc = TestCollector<int>()
 
-    Rx.concat
-        [ Rx.timer 50 |> Rx.map (fun _ -> 1)
-          Rx.timer 10 |> Rx.map (fun _ -> 2) ]
-    |> Rx.subscribe tc.Handler
+    Reactive.concat
+        [ Reactive.timer 50 |> Reactive.map (fun _ -> 1)
+          Reactive.timer 10 |> Reactive.map (fun _ -> 2) ]
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     sleep 200

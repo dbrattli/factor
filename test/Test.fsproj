@@ -9,7 +9,7 @@
     <Compile Include="FilterTest.fs" />
     <Compile Include="CombineTest.fs" />
     <Compile Include="TimeshiftTest.fs" />
-    <Compile Include="SubjectTest.fs" />
+    <Compile Include="StreamTest.fs" />
     <Compile Include="ErrorTest.fs" />
     <Compile Include="BuilderTest.fs" />
     <Compile Include="NewOperatorsTest.fs" />

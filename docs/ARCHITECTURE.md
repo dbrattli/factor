@@ -119,7 +119,7 @@ src/
 ├── Error.fs          # Error handling: retry, catch
 ├── Interop.fs        # Interop helpers: tapSend
 ├── Builder.fs        # Computation expression builder (rx { ... })
-└── Factor.fs         # API facade (Factor.Rx module), re-exports all operators
+└── Factor.fs         # API facade (Factor.Reactive module), re-exports all operators
 ```
 
 ## State Management

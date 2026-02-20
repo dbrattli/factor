@@ -1,83 +1,97 @@
-/// Subject types for Factor
+/// Stream types for Factor
 ///
-/// Subjects are both Handlers and Factors - they can receive
-/// notifications and forward them to subscribers.
-module Factor.Subject
+/// Streams are both Handlers and Factors - they can receive
+/// notifications and forward them to subscribers. Each stream
+/// is backed by a separate BEAM actor process that manages
+/// subscribers via message passing, solving cross-process
+/// mutable state issues.
+module Factor.Stream
 
-open System.Collections.Generic
 open Factor.Types
 
-/// Creates a multicast subject that allows multiple subscribers.
+/// Creates a multicast stream backed by a BEAM actor process.
 ///
 /// Returns a tuple of (Handler, Factor) where:
-/// - The Handler side is used to push notifications
-/// - The Factor side can be subscribed to by multiple handlers
-let subject<'T> () : Handler<'T> * Factor<'T> =
-    let mutable subscribers: (int * Handler<'T>) list = []
-    let mutable nextId = 0
+/// - The Handler side sends notifications to the stream actor
+/// - The Factor side registers subscribers with the stream actor
+///
+/// The stream actor manages a subscriber map and broadcasts
+/// notifications to all subscribers. Subscribe is synchronous
+/// to prevent races between subscribe and first notify.
+let stream<'T> () : Handler<'T> * Factor<'T> =
+    let streamPid = Process.startStream ()
 
     let handler =
         { Notify =
             fun n ->
-                for _, sub in subscribers do
-                    sub.Notify(n)
-
                 match n with
-                | OnCompleted
-                | OnError _ -> subscribers <- []
-                | OnNext _ -> () }
+                | OnNext _ -> Process.streamNotify streamPid (box n)
+                | OnError _
+                | OnCompleted -> Process.streamNotifyTerminal streamPid (box n) }
 
     let factor =
         { Subscribe =
             fun downstream ->
-                let id = nextId
-                nextId <- nextId + 1
-                subscribers <- (id, downstream) :: subscribers
+                let ref = Process.makeRef ()
 
-                { Dispose = fun () -> subscribers <- subscribers |> List.filter (fun (sid, _) -> sid <> id) } }
+                // Register local child handler to receive notifications from stream actor
+                Process.registerChild
+                    ref
+                    (fun notification ->
+                        let n = unbox<Notification<'T>> notification
+                        downstream.Notify(n))
+
+                // Synchronously subscribe to stream actor
+                Process.streamSubscribe streamPid ref
+
+                { Dispose =
+                    fun () ->
+                        Process.unregisterChild ref
+                        Process.streamUnsubscribe streamPid ref } }
 
     (handler, factor)
 
-/// Creates a single-subscriber subject with buffering.
+/// Creates a single-subscriber stream with buffering, backed by a BEAM actor.
 ///
 /// Notifications sent before subscription are buffered and delivered
 /// when a subscriber connects.
-let singleSubject<'T> () : Handler<'T> * Factor<'T> =
-    let mutable subscriber: Handler<'T> option = None
-    let pending = Queue<Notification<'T>>()
+let singleStream<'T> () : Handler<'T> * Factor<'T> =
+    let streamPid = Process.startSingleStream ()
 
     let handler =
         { Notify =
             fun n ->
-                match subscriber with
-                | Some obs ->
-                    obs.Notify(n)
-
-                    match n with
-                    | OnCompleted
-                    | OnError _ -> subscriber <- None
-                    | OnNext _ -> ()
-                | None -> pending.Enqueue(n) }
+                match n with
+                | OnNext _ -> Process.streamNotify streamPid (box n)
+                | OnError _
+                | OnCompleted -> Process.streamNotifyTerminal streamPid (box n) }
 
     let factor =
         { Subscribe =
             fun downstream ->
-                match subscriber with
-                | Some _ -> failwith "single_subject: Already subscribed"
-                | None ->
-                    // Flush pending
-                    while pending.Count > 0 do
-                        downstream.Notify(pending.Dequeue())
+                let ref = Process.makeRef ()
 
-                    subscriber <- Some downstream
+                // Register local child handler to receive notifications from stream actor
+                Process.registerChild
+                    ref
+                    (fun notification ->
+                        let n = unbox<Notification<'T>> notification
+                        downstream.Notify(n))
 
-                    { Dispose = fun () -> subscriber <- None } }
+                // Synchronously subscribe to stream actor
+                Process.streamSubscribe streamPid ref
+
+                { Dispose =
+                    fun () ->
+                        Process.unregisterChild ref
+                        Process.streamUnsubscribe streamPid ref } }
 
     (handler, factor)
 
 /// Converts a cold factor into a connectable hot factor.
 ///
 /// Returns a tuple of (Factor, connect_fn).
+/// Uses inline mutable state for synchronous multicast.
 let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
     let mutable subscribers: (int * Handler<'T>) list = []
     let mutable nextId = 0
@@ -134,6 +148,7 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
 ///
 /// Automatically connects when the first subscriber subscribes,
 /// and disconnects when the last subscriber unsubscribes.
+/// Note: connection management is per-process (uses mutable state).
 let share (source: Factor<'T>) : Factor<'T> =
     let mutable subscribers: (int * Handler<'T>) list = []
     let mutable nextId = 0

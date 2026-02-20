@@ -2,7 +2,7 @@
 module Factor.MergeInnerTest
 
 open Factor.Types
-open Factor.Rx
+open Factor.Reactive
 open Factor.TestUtils
 
 // ============================================================================
@@ -12,10 +12,12 @@ open Factor.TestUtils
 let merge_inner_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
-    |> Rx.mergeInner None
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.ofList [ 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
+    |> Reactive.mergeInner None
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldHaveLength 6 tc.Results
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] (List.sort tc.Results)
@@ -24,8 +26,8 @@ let merge_inner_basic_test () =
 let merge_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
-    emptyOuter |> Rx.mergeInner None |> Rx.subscribe tc.Handler |> ignore
+    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    emptyOuter |> Reactive.mergeInner None |> Reactive.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -33,10 +35,12 @@ let merge_inner_empty_outer_test () =
 let merge_inner_empty_inners_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
-    |> Rx.mergeInner None
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.empty (); Reactive.empty (); Reactive.empty () ]
+    |> Reactive.mergeInner None
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -44,10 +48,12 @@ let merge_inner_empty_inners_test () =
 let merge_inner_single_inner_test () =
     let tc = TestCollector<int>()
 
-    Rx.single (Rx.ofList [ 1; 2; 3 ])
-    |> Rx.mergeInner None
-    |> Rx.subscribe tc.Handler
+    Reactive.single (Reactive.ofList [ 1; 2; 3 ])
+    |> Reactive.mergeInner None
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [ 1; 2; 3 ] tc.Results
     shouldBeTrue tc.Completed
@@ -55,10 +61,12 @@ let merge_inner_single_inner_test () =
 let merge_inner_error_propagates_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.fail "inner error"; Rx.ofList [ 3; 4 ] ]
-    |> Rx.mergeInner None
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail "inner error"; Reactive.ofList [ 3; 4 ] ]
+    |> Reactive.mergeInner None
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldBeFalse tc.Completed
     shouldEqual 1 tc.Errors.Length
@@ -70,10 +78,12 @@ let merge_inner_error_propagates_test () =
 let concat_inner_basic_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
-    |> Rx.concatInner
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.ofList [ 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
+    |> Reactive.concatInner
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
     shouldBeTrue tc.Completed
@@ -81,8 +91,8 @@ let concat_inner_basic_test () =
 let concat_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
-    emptyOuter |> Rx.concatInner |> Rx.subscribe tc.Handler |> ignore
+    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    emptyOuter |> Reactive.concatInner |> Reactive.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -90,10 +100,12 @@ let concat_inner_empty_outer_test () =
 let concat_inner_empty_inners_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
-    |> Rx.concatInner
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.empty (); Reactive.empty (); Reactive.empty () ]
+    |> Reactive.concatInner
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -101,10 +113,12 @@ let concat_inner_empty_inners_test () =
 let concat_inner_preserves_order_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1 ]; Rx.ofList [ 2; 3; 4 ]; Rx.ofList [ 5; 6 ] ]
-    |> Rx.concatInner
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1 ]; Reactive.ofList [ 2; 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
+    |> Reactive.concatInner
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
     shouldBeTrue tc.Completed
@@ -112,10 +126,12 @@ let concat_inner_preserves_order_test () =
 let concat_inner_error_stops_processing_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.fail "inner error"; Rx.ofList [ 3; 4 ] ]
-    |> Rx.concatInner
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail "inner error"; Reactive.ofList [ 3; 4 ] ]
+    |> Reactive.concatInner
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [ 1; 2 ] tc.Results
     shouldBeFalse tc.Completed
@@ -129,16 +145,19 @@ let flat_map_is_map_plus_merge_inner_test () =
     let tc1 = TestCollector<int>()
     let tc2 = TestCollector<int>()
 
-    let source = Rx.ofList [ 1; 2; 3 ]
-    let mapper = fun x -> Rx.ofList [ x; x * 10 ]
+    let source = Reactive.ofList [ 1; 2; 3 ]
+    let mapper = fun x -> Reactive.ofList [ x; x * 10 ]
 
-    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Handler |> ignore
+    source |> Reactive.flatMap mapper |> Reactive.subscribe tc1.Handler |> ignore
+    sleep 50
 
     source
-    |> Rx.map mapper
-    |> Rx.mergeInner None
-    |> Rx.subscribe tc2.Handler
+    |> Reactive.map mapper
+    |> Reactive.mergeInner None
+    |> Reactive.subscribe tc2.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual (List.sort tc1.Results) (List.sort tc2.Results)
     shouldBeTrue tc1.Completed
@@ -148,16 +167,19 @@ let concat_map_is_map_plus_concat_inner_test () =
     let tc1 = TestCollector<int>()
     let tc2 = TestCollector<int>()
 
-    let source = Rx.ofList [ 1; 2; 3 ]
-    let mapper = fun x -> Rx.ofList [ x; x * 10 ]
+    let source = Reactive.ofList [ 1; 2; 3 ]
+    let mapper = fun x -> Reactive.ofList [ x; x * 10 ]
 
-    source |> Rx.concatMap mapper |> Rx.subscribe tc1.Handler |> ignore
+    source |> Reactive.concatMap mapper |> Reactive.subscribe tc1.Handler |> ignore
+    sleep 50
 
     source
-    |> Rx.map mapper
-    |> Rx.concatInner
-    |> Rx.subscribe tc2.Handler
+    |> Reactive.map mapper
+    |> Reactive.concatInner
+    |> Reactive.subscribe tc2.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [ 1; 10; 2; 20; 3; 30 ] tc1.Results
     shouldEqual [ 1; 10; 2; 20; 3; 30 ] tc2.Results
@@ -168,11 +190,13 @@ let concat_map_vs_flat_map_order_test () =
     let tc1 = TestCollector<int>()
     let tc2 = TestCollector<int>()
 
-    let source = Rx.ofList [ 1; 2; 3 ]
-    let mapper = fun x -> Rx.ofList [ x; x * 10 ]
+    let source = Reactive.ofList [ 1; 2; 3 ]
+    let mapper = fun x -> Reactive.ofList [ x; x * 10 ]
 
-    source |> Rx.flatMap mapper |> Rx.subscribe tc1.Handler |> ignore
-    source |> Rx.concatMap mapper |> Rx.subscribe tc2.Handler |> ignore
+    source |> Reactive.flatMap mapper |> Reactive.subscribe tc1.Handler |> ignore
+    sleep 50
+    source |> Reactive.concatMap mapper |> Reactive.subscribe tc2.Handler |> ignore
+    sleep 50
 
     // concatMap always has strict order
     shouldEqual [ 1; 10; 2; 20; 3; 30 ] tc2.Results
@@ -186,9 +210,9 @@ let concat_map_vs_flat_map_order_test () =
 let mapi_basic_test () =
     let tc = TestCollector<int * string>()
 
-    Rx.ofList [ "a"; "b"; "c" ]
-    |> Rx.mapi (fun x i -> (i, x))
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ "a"; "b"; "c" ]
+    |> Reactive.mapi (fun x i -> (i, x))
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (0, "a"); (1, "b"); (2, "c") ] tc.Results
@@ -197,9 +221,9 @@ let mapi_basic_test () =
 let mapi_empty_test () =
     let tc = TestCollector<int * int>()
 
-    Rx.empty ()
-    |> Rx.mapi (fun (x: int) i -> (i, x))
-    |> Rx.subscribe tc.Handler
+    Reactive.empty ()
+    |> Reactive.mapi (fun (x: int) i -> (i, x))
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -208,9 +232,9 @@ let mapi_empty_test () =
 let mapi_index_starts_at_zero_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ 100; 200; 300 ]
-    |> Rx.mapi (fun _ i -> i)
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ 100; 200; 300 ]
+    |> Reactive.mapi (fun _ i -> i)
+    |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 0; 1; 2 ] tc.Results
@@ -225,10 +249,12 @@ let merge_inner_max_concurrency_one_equals_concat_test () =
     let tc2 = TestCollector<int>()
 
     let source =
-        Rx.ofList [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
+        Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.ofList [ 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
 
-    source |> Rx.mergeInner (Some 1) |> Rx.subscribe tc1.Handler |> ignore
-    source |> Rx.concatInner |> Rx.subscribe tc2.Handler |> ignore
+    source |> Reactive.mergeInner (Some 1) |> Reactive.subscribe tc1.Handler |> ignore
+    sleep 50
+    source |> Reactive.concatInner |> Reactive.subscribe tc2.Handler |> ignore
+    sleep 50
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc1.Results
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc2.Results
@@ -238,14 +264,16 @@ let merge_inner_max_concurrency_one_equals_concat_test () =
 let merge_inner_max_concurrency_two_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList
-        [ Rx.ofList [ 1; 2 ]
-          Rx.ofList [ 3; 4 ]
-          Rx.ofList [ 5; 6 ]
-          Rx.ofList [ 7; 8 ] ]
-    |> Rx.mergeInner (Some 2)
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList
+        [ Reactive.ofList [ 1; 2 ]
+          Reactive.ofList [ 3; 4 ]
+          Reactive.ofList [ 5; 6 ]
+          Reactive.ofList [ 7; 8 ] ]
+    |> Reactive.mergeInner (Some 2)
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldHaveLength 8 tc.Results
     shouldEqual [ 1; 2; 3; 4; 5; 6; 7; 8 ] (List.sort tc.Results)
@@ -254,10 +282,12 @@ let merge_inner_max_concurrency_two_test () =
 let merge_inner_max_concurrency_empty_inners_test () =
     let tc = TestCollector<int>()
 
-    Rx.ofList [ Rx.empty (); Rx.empty (); Rx.empty () ]
-    |> Rx.mergeInner (Some 2)
-    |> Rx.subscribe tc.Handler
+    Reactive.ofList [ Reactive.empty (); Reactive.empty (); Reactive.empty () ]
+    |> Reactive.mergeInner (Some 2)
+    |> Reactive.subscribe tc.Handler
     |> ignore
+
+    sleep 50
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
