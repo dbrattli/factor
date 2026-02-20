@@ -18,7 +18,7 @@ let group_by_basic_test () =
         values
         |> Rx.reduce [] (fun acc v -> acc @ [ v ])
         |> Rx.map (fun collected -> (key, collected)))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     let sorted = tc.Results |> List.sortBy fst
@@ -32,7 +32,7 @@ let group_by_single_group_test () =
     |> Rx.groupBy (fun _ -> "all")
     |> Rx.flatMap (fun (key, values) ->
         values |> Rx.map (fun v -> (key, v)))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ ("all", 1); ("all", 2); ("all", 3) ] tc.Results
@@ -44,7 +44,7 @@ let group_by_each_unique_key_test () =
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.groupBy (fun x -> x)
     |> Rx.flatMap (fun (_, values) -> values)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldHaveLength 3 tc.Results
@@ -71,7 +71,7 @@ let group_by_count_groups_test () =
     Rx.ofList [ 1; 2; 3; 4; 5; 6; 7; 8 ]
     |> Rx.groupBy (fun x -> x % 3)
     |> Rx.reduce 0 (fun count _ -> count + 1)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 3 ] tc.Results
@@ -84,7 +84,7 @@ let group_by_preserves_order_within_group_test () =
     |> Rx.groupBy (fun _ -> "evens")
     |> Rx.flatMap (fun (_, values) ->
         values |> Rx.reduce [] (fun acc v -> acc @ [ v ]))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ [ 2; 4; 6; 8; 10 ] ] tc.Results
@@ -103,7 +103,7 @@ let group_by_with_strings_test () =
         values
         |> Rx.reduce [] (fun acc v -> acc @ [ v ])
         |> Rx.map (fun collected -> (key, collected)))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     let groups = tc.Results |> Map.ofList

@@ -23,11 +23,15 @@ cancel({Ref, TimerRef}) ->
         ok
     end.
 
-%% Process pending timer messages for up to TimeoutMs milliseconds.
+%% Unified message pump: processes timer, child, and EXIT messages.
 %%
-%% This is the "timer pump" — it receives factor_timer messages and
-%% executes their callbacks in the current process. Repeats until
-%% the timeout expires.
+%% Handles:
+%% - {factor_timer, Ref, Callback} - timer callbacks
+%% - {factor_child, Id, Notification} - child process messages
+%% - {'EXIT', Pid, Reason} - linked process exit signals (requires trap_exit)
+%%
+%% ChildHandler and ExitHandler are called when child/exit messages arrive.
+%% Pass 'undefined' for handlers you don't need.
 %%
 %% Use this as a timer-aware replacement for timer:sleep/1.
 process_timers(TimeoutMs) ->
@@ -42,6 +46,20 @@ process_timers_loop(EndTime) ->
             receive
                 {factor_timer, _Ref, Callback} ->
                     Callback(ok),
+                    process_timers_loop(EndTime);
+                {factor_child, Id, Notification} ->
+                    %% Forward child messages to the process dictionary handler
+                    case get(factor_child_handler) of
+                        undefined -> ok;
+                        Handler -> Handler({Id, Notification})
+                    end,
+                    process_timers_loop(EndTime);
+                {'EXIT', Pid, Reason} ->
+                    %% Forward EXIT signals to the process dictionary handler
+                    case get(factor_exit_handler) of
+                        undefined -> ok;
+                        Handler -> Handler({Pid, Reason})
+                    end,
                     process_timers_loop(EndTime)
             after min(Remaining, 1) ->
                 process_timers_loop(EndTime)

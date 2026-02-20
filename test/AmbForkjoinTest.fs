@@ -16,7 +16,7 @@ let amb_first_to_emit_wins_test () =
         [ Rx.timer 100 |> Rx.map (fun _ -> "slow")
           Rx.timer 30 |> Rx.map (fun _ -> "fast")
           Rx.timer 200 |> Rx.map (fun _ -> "slowest") ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 300
@@ -27,7 +27,7 @@ let amb_sync_first_wins_test () =
     let tc = TestCollector<int>()
 
     Rx.amb [ Rx.ofList [ 1; 2; 3 ]; Rx.ofList [ 4; 5; 6 ] ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -35,19 +35,19 @@ let amb_sync_first_wins_test () =
 
 let amb_empty_list_test () =
     let tc = TestCollector<int>()
-    Rx.amb [] |> Rx.subscribe tc.Observer |> ignore
+    Rx.amb [] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
 let amb_single_source_test () =
     let tc = TestCollector<int>()
-    Rx.amb [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.amb [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2; 3 ] tc.Results
     shouldBeTrue tc.Completed
 
 let race_is_alias_for_amb_test () =
     let tc = TestCollector<int>()
-    Rx.race [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ] ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.race [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ] ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -55,7 +55,7 @@ let amb_error_from_winner_propagates_test () =
     let tc = TestCollector<int>()
 
     Rx.amb [ Rx.fail "error"; Rx.timer 100 |> Rx.map (fun _ -> 1) ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -70,7 +70,7 @@ let fork_join_basic_test () =
     let tc = TestCollector<int list>()
 
     Rx.forkJoin [ Rx.ofList [ 1; 2; 3 ]; Rx.ofList [ 4; 5 ]; Rx.single 6 ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ [ 3; 5; 6 ] ] tc.Results
@@ -78,13 +78,13 @@ let fork_join_basic_test () =
 
 let fork_join_empty_list_test () =
     let tc = TestCollector<int list>()
-    Rx.forkJoin [] |> Rx.subscribe tc.Observer |> ignore
+    Rx.forkJoin [] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ [] ] tc.Results
     shouldBeTrue tc.Completed
 
 let fork_join_single_source_test () =
     let tc = TestCollector<int list>()
-    Rx.forkJoin [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.forkJoin [ Rx.ofList [ 1; 2; 3 ] ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ [ 3 ] ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -95,7 +95,7 @@ let fork_join_async_test () =
         [ Rx.timer 50 |> Rx.map (fun _ -> 1)
           Rx.timer 30 |> Rx.map (fun _ -> 2)
           Rx.timer 70 |> Rx.map (fun _ -> 3) ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 200
@@ -106,7 +106,7 @@ let fork_join_empty_source_errors_test () =
     let tc = TestCollector<int list>()
 
     Rx.forkJoin [ Rx.ofList [ 1; 2 ]; Rx.empty (); Rx.ofList [ 3 ] ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -117,7 +117,7 @@ let fork_join_error_propagates_test () =
     let tc = TestCollector<int list>()
 
     Rx.forkJoin [ Rx.ofList [ 1; 2 ]; Rx.fail "oops"; Rx.ofList [ 3 ] ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -133,7 +133,7 @@ let distinct_basic_test () =
 
     Rx.ofList [ 1; 2; 1; 3; 2; 4; 1 ]
     |> Rx.distinct
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4 ] tc.Results
@@ -144,7 +144,7 @@ let distinct_all_unique_test () =
 
     Rx.ofList [ 1; 2; 3; 4; 5 ]
     |> Rx.distinct
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5 ] tc.Results
@@ -155,7 +155,7 @@ let distinct_all_same_test () =
 
     Rx.ofList [ 1; 1; 1; 1; 1 ]
     |> Rx.distinct
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1 ] tc.Results
@@ -163,7 +163,7 @@ let distinct_all_same_test () =
 
 let distinct_empty_test () =
     let tc = TestCollector<int>()
-    Rx.empty () |> Rx.distinct |> Rx.subscribe tc.Observer |> ignore
+    Rx.empty () |> Rx.distinct |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
@@ -173,8 +173,8 @@ let distinct_vs_distinct_until_changed_test () =
 
     let source = Rx.ofList [ 1; 2; 2; 1; 3; 3 ]
 
-    source |> Rx.distinct |> Rx.subscribe tc1.Observer |> ignore
-    source |> Rx.distinctUntilChanged |> Rx.subscribe tc2.Observer |> ignore
+    source |> Rx.distinct |> Rx.subscribe tc1.Handler |> ignore
+    source |> Rx.distinctUntilChanged |> Rx.subscribe tc2.Handler |> ignore
 
     // distinct: all unique
     shouldEqual [ 1; 2; 3 ] tc1.Results
@@ -191,7 +191,7 @@ let timeout_no_timeout_test () =
     Rx.interval 20
     |> Rx.take 3
     |> Rx.timeout 100
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 200
@@ -205,7 +205,7 @@ let timeout_triggers_error_test () =
     Rx.timer 200
     |> Rx.map (fun _ -> 1)
     |> Rx.timeout 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 150
@@ -219,7 +219,7 @@ let timeout_resets_on_emission_test () =
     Rx.interval 30
     |> Rx.take 4
     |> Rx.timeout 50
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 250
@@ -232,7 +232,7 @@ let timeout_sync_source_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.timeout 1000
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results

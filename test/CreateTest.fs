@@ -11,25 +11,25 @@ open Factor.TestUtils
 
 let single_emits_value_and_completes_test () =
     let tc = TestCollector<int>()
-    Rx.single 42 |> Rx.subscribe tc.Observer |> ignore
+    Rx.single 42 |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 42 ] tc.Results
     shouldBeTrue tc.Completed
     shouldEqual [] tc.Errors
 
 let single_notifications_in_order_test () =
     let tc = TestCollector<int>()
-    Rx.single 42 |> Rx.subscribe tc.Observer |> ignore
+    Rx.single 42 |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ OnNext 42; OnCompleted ] tc.Notifications
 
 let single_with_zero_test () =
     let tc = TestCollector<int>()
-    Rx.single 0 |> Rx.subscribe tc.Observer |> ignore
+    Rx.single 0 |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 0 ] tc.Results
     shouldBeTrue tc.Completed
 
 let single_with_negative_test () =
     let tc = TestCollector<int>()
-    Rx.single -42 |> Rx.subscribe tc.Observer |> ignore
+    Rx.single -42 |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ -42 ] tc.Results
     shouldBeTrue tc.Completed
 
@@ -39,14 +39,14 @@ let single_with_negative_test () =
 
 let empty_completes_immediately_test () =
     let tc = TestCollector<int>()
-    Rx.empty () |> Rx.subscribe tc.Observer |> ignore
+    Rx.empty () |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
     shouldEqual [] tc.Errors
 
 let empty_notifications_test () =
     let tc = TestCollector<int>()
-    Rx.empty () |> Rx.subscribe tc.Observer |> ignore
+    Rx.empty () |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ OnCompleted ] tc.Notifications
 
 // ============================================================================
@@ -55,14 +55,14 @@ let empty_notifications_test () =
 
 let never_does_not_emit_or_complete_test () =
     let tc = TestCollector<int>()
-    Rx.never () |> Rx.subscribe tc.Observer |> ignore
+    Rx.never () |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
     shouldEqual [] tc.Errors
 
 let never_notifications_test () =
     let tc = TestCollector<int>()
-    Rx.never () |> Rx.subscribe tc.Observer |> ignore
+    Rx.never () |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Notifications
 
 // ============================================================================
@@ -71,19 +71,19 @@ let never_notifications_test () =
 
 let fail_emits_error_test () =
     let tc = TestCollector<int>()
-    Rx.fail "test error" |> Rx.subscribe tc.Observer |> ignore
+    Rx.fail "test error" |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
     shouldEqual [ "test error" ] tc.Errors
 
 let fail_notifications_test () =
     let tc = TestCollector<int>()
-    Rx.fail "error message" |> Rx.subscribe tc.Observer |> ignore
+    Rx.fail "error message" |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ OnError "error message" ] tc.Notifications
 
 let fail_with_empty_message_test () =
     let tc = TestCollector<int>()
-    Rx.fail "" |> Rx.subscribe tc.Observer |> ignore
+    Rx.fail "" |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ "" ] tc.Errors
 
 // ============================================================================
@@ -92,30 +92,30 @@ let fail_with_empty_message_test () =
 
 let from_list_emits_all_items_test () =
     let tc = TestCollector<int>()
-    Rx.ofList [ 1; 2; 3; 4; 5 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.ofList [ 1; 2; 3; 4; 5 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 1; 2; 3; 4; 5 ] tc.Results
     shouldBeTrue tc.Completed
 
 let from_list_empty_completes_test () =
     let tc = TestCollector<int>()
-    Rx.ofList [] |> Rx.subscribe tc.Observer |> ignore
+    Rx.ofList [] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
 let from_list_single_item_test () =
     let tc = TestCollector<int>()
-    Rx.ofList [ 42 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.ofList [ 42 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 42 ] tc.Results
     shouldBeTrue tc.Completed
 
 let from_list_notifications_test () =
     let tc = TestCollector<int>()
-    Rx.ofList [ 1; 2; 3 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.ofList [ 1; 2; 3 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ OnNext 1; OnNext 2; OnNext 3; OnCompleted ] tc.Notifications
 
 let from_list_preserves_order_test () =
     let tc = TestCollector<int>()
-    Rx.ofList [ 5; 4; 3; 2; 1 ] |> Rx.subscribe tc.Observer |> ignore
+    Rx.ofList [ 5; 4; 3; 2; 1 ] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [ 5; 4; 3; 2; 1 ] tc.Results
 
 // ============================================================================
@@ -131,10 +131,10 @@ let defer_creates_new_observable_per_subscribe_test () =
             Rx.single callCount)
 
     let tc1 = TestCollector<int>()
-    observable |> Rx.subscribe tc1.Observer |> ignore
+    observable |> Rx.subscribe tc1.Handler |> ignore
 
     let tc2 = TestCollector<int>()
-    observable |> Rx.subscribe tc2.Observer |> ignore
+    observable |> Rx.subscribe tc2.Handler |> ignore
 
     shouldEqual 2 callCount
     shouldEqual [ 1 ] tc1.Results
@@ -154,7 +154,7 @@ let defer_with_from_list_test () =
     let tc = TestCollector<int>()
 
     Rx.defer (fun () -> Rx.ofList [ 10; 20; 30 ])
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 10; 20; 30 ] tc.Results

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Types.fs" />
-    <Compile Include="SafeObserver.fs" />
+    <Compile Include="SafeHandler.fs" />
     <Compile Include="Create.fs" />
     <Compile Include="Transform.fs" />
     <Compile Include="Filter.fs" />
@@ -13,6 +13,8 @@
     <Compile Include="Subject.fs" />
     <Compile Include="Error.fs" />
     <Compile Include="Interop.fs" />
+    <Compile Include="Process.fs" />
+    <Compile Include="Actor.fs" />
     <Compile Include="Builder.fs" />
     <Compile Include="Factor.fs" />
   </ItemGroup>

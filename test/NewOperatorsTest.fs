@@ -14,7 +14,7 @@ let switch_inner_basic_test () =
 
     Rx.ofList [ Rx.ofList [ 1; 2; 3 ]; Rx.ofList [ 4; 5; 6 ] ]
     |> Rx.switchInner
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     // With sync sources, each inner completes before next arrives
@@ -26,7 +26,7 @@ let switch_map_basic_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.switchMap (fun x -> Rx.ofList [ x; x * 10 ])
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldBeTrue (tc.Results.Length >= 2)
@@ -35,8 +35,8 @@ let switch_map_basic_test () =
 let switch_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Observable<Observable<int>> = Rx.empty ()
-    emptyOuter |> Rx.switchInner |> Rx.subscribe tc.Observer |> ignore
+    let emptyOuter: Factor<Factor<int, string>, string> = Rx.empty ()
+    emptyOuter |> Rx.switchInner |> Rx.subscribe tc.Handler |> ignore
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -47,7 +47,7 @@ let switch_map_async_cancels_previous_test () =
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.switchMap (fun x ->
         Rx.timer (x * 30) |> Rx.map (fun _ -> x))
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 200
@@ -65,7 +65,7 @@ let tap_basic_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.tap (fun x -> sideEffects <- sideEffects @ [ x ])
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -78,7 +78,7 @@ let tap_does_not_modify_values_test () =
     Rx.ofList [ 10; 20; 30 ]
     |> Rx.tap (fun _ -> ())
     |> Rx.map (fun x -> x * 2)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 20; 40; 60 ] tc.Results
@@ -93,7 +93,7 @@ let start_with_basic_test () =
 
     Rx.ofList [ 3; 4; 5 ]
     |> Rx.startWith [ 1; 2 ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5 ] tc.Results
@@ -104,7 +104,7 @@ let start_with_empty_prefix_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.startWith []
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -115,7 +115,7 @@ let start_with_empty_source_test () =
 
     Rx.empty ()
     |> Rx.startWith [ 1; 2 ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2 ] tc.Results
@@ -130,7 +130,7 @@ let pairwise_basic_test () =
 
     Rx.ofList [ 1; 2; 3; 4 ]
     |> Rx.pairwise
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ (1, 2); (2, 3); (3, 4) ] tc.Results
@@ -141,7 +141,7 @@ let pairwise_single_element_test () =
 
     Rx.single 1
     |> Rx.pairwise
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -152,7 +152,7 @@ let pairwise_empty_test () =
 
     Rx.empty ()
     |> Rx.pairwise
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -167,7 +167,7 @@ let first_basic_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.first
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1 ] tc.Results
@@ -178,7 +178,7 @@ let first_single_element_test () =
 
     Rx.single 42
     |> Rx.first
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -189,7 +189,7 @@ let first_empty_errors_test () =
 
     Rx.empty ()
     |> Rx.first
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -205,7 +205,7 @@ let last_basic_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.last
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 3 ] tc.Results
@@ -216,7 +216,7 @@ let last_single_element_test () =
 
     Rx.single 42
     |> Rx.last
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -227,7 +227,7 @@ let last_empty_errors_test () =
 
     Rx.empty ()
     |> Rx.last
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
@@ -243,7 +243,7 @@ let default_if_empty_with_values_test () =
 
     Rx.ofList [ 1; 2; 3 ]
     |> Rx.defaultIfEmpty 99
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -254,7 +254,7 @@ let default_if_empty_empty_source_test () =
 
     Rx.empty ()
     |> Rx.defaultIfEmpty 42
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 42 ] tc.Results
@@ -270,7 +270,7 @@ let sample_basic_test () =
     Rx.interval 20
     |> Rx.take 10
     |> Rx.sample (Rx.interval 50 |> Rx.take 3)
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 300
@@ -286,7 +286,7 @@ let concat_basic_test () =
     let tc = TestCollector<int>()
 
     Rx.concat [ Rx.ofList [ 1; 2 ]; Rx.ofList [ 3; 4 ]; Rx.ofList [ 5; 6 ] ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4; 5; 6 ] tc.Results
@@ -296,7 +296,7 @@ let concat2_test () =
     let tc = TestCollector<int>()
 
     Rx.concat2 (Rx.ofList [ 1; 2 ]) (Rx.ofList [ 3; 4 ])
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3; 4 ] tc.Results
@@ -304,7 +304,7 @@ let concat2_test () =
 
 let concat_empty_list_test () =
     let tc = TestCollector<int>()
-    Rx.concat [] |> Rx.subscribe tc.Observer |> ignore
+    Rx.concat [] |> Rx.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
@@ -312,7 +312,7 @@ let concat_with_empty_sources_test () =
     let tc = TestCollector<int>()
 
     Rx.concat [ Rx.empty (); Rx.ofList [ 1; 2 ]; Rx.empty (); Rx.ofList [ 3 ] ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     shouldEqual [ 1; 2; 3 ] tc.Results
@@ -324,7 +324,7 @@ let concat_sequential_async_test () =
     Rx.concat
         [ Rx.timer 50 |> Rx.map (fun _ -> 1)
           Rx.timer 10 |> Rx.map (fun _ -> 2) ]
-    |> Rx.subscribe tc.Observer
+    |> Rx.subscribe tc.Handler
     |> ignore
 
     sleep 200

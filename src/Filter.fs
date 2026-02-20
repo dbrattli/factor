@@ -1,77 +1,77 @@
 /// Filter operators for Factor
 ///
-/// These operators filter elements from an observable sequence.
+/// These operators filter elements from a Factor sequence.
 module Factor.Filter
 
 open Factor.Types
 
 /// Filters elements based on a predicate.
-let filter (predicate: 'a -> bool) (source: Observable<'a>) : Observable<'a> =
+let filter (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            let upstreamObserver =
+        fun handler ->
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             if predicate x then
-                                observer.Notify(n)
-                        | _ -> observer.Notify(n) }
+                                handler.Notify(n)
+                        | _ -> handler.Notify(n) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Applies a function that returns Option. Emits Some values, skips None.
-let choose (chooser: 'a -> 'b option) (source: Observable<'a>) : Observable<'b> =
+let choose (chooser: 'a -> 'b option) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     { Subscribe =
-        fun observer ->
-            let upstreamObserver =
+        fun handler ->
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             match chooser x with
-                            | Some value -> observer.Notify(OnNext value)
+                            | Some value -> handler.Notify(OnNext value)
                             | None -> ()
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Returns the first N elements from the source.
-let take (count: int) (source: Observable<'a>) : Observable<'a> =
+let take (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     if count <= 0 then
         { Subscribe =
-            fun observer ->
-                observer.Notify(OnCompleted)
-                emptyDisposable () }
+            fun handler ->
+                handler.Notify(OnCompleted)
+                emptyHandle () }
     else
         { Subscribe =
-            fun observer ->
+            fun handler ->
                 let mutable remaining = count
 
-                let upstreamObserver =
+                let upstream =
                     { Notify =
                         fun n ->
                             if remaining > 0 then
                                 match n with
                                 | OnNext x ->
                                     remaining <- remaining - 1
-                                    observer.Notify(OnNext x)
+                                    handler.Notify(OnNext x)
 
                                     if remaining = 0 then
-                                        observer.Notify(OnCompleted)
-                                | OnError e -> observer.Notify(OnError e)
-                                | OnCompleted -> observer.Notify(OnCompleted) }
+                                        handler.Notify(OnCompleted)
+                                | OnError e -> handler.Notify(OnError e)
+                                | OnCompleted -> handler.Notify(OnCompleted) }
 
-                source.Subscribe(upstreamObserver) }
+                source.Subscribe(upstream) }
 
 /// Skips the first N elements from the source.
-let skip (count: int) (source: Observable<'a>) : Observable<'a> =
+let skip (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable remaining = count
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
@@ -79,41 +79,41 @@ let skip (count: int) (source: Observable<'a>) : Observable<'a> =
                             if remaining > 0 then
                                 remaining <- remaining - 1
                             else
-                                observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                                handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Takes elements while predicate returns true.
-let takeWhile (predicate: 'a -> bool) (source: Observable<'a>) : Observable<'a> =
+let takeWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable taking = true
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if taking then
                             match n with
                             | OnNext x ->
                                 if predicate x then
-                                    observer.Notify(OnNext x)
+                                    handler.Notify(OnNext x)
                                 else
                                     taking <- false
-                                    observer.Notify(OnCompleted)
-                            | OnError e -> observer.Notify(OnError e)
-                            | OnCompleted -> observer.Notify(OnCompleted) }
+                                    handler.Notify(OnCompleted)
+                            | OnError e -> handler.Notify(OnError e)
+                            | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Skips elements while predicate returns true.
-let skipWhile (predicate: 'a -> bool) (source: Observable<'a>) : Observable<'a> =
+let skipWhile (predicate: 'a -> bool) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable skipping = true
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
@@ -121,21 +121,21 @@ let skipWhile (predicate: 'a -> bool) (source: Observable<'a>) : Observable<'a> 
                             if skipping then
                                 if not (predicate x) then
                                     skipping <- false
-                                    observer.Notify(OnNext x)
+                                    handler.Notify(OnNext x)
                             else
-                                observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                                handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Emits elements that are different from the previous element.
-let distinctUntilChanged (source: Observable<'a>) : Observable<'a> =
+let distinctUntilChanged (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable last: 'a option = None
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
@@ -143,64 +143,64 @@ let distinctUntilChanged (source: Observable<'a>) : Observable<'a> =
                             match last with
                             | None ->
                                 last <- Some x
-                                observer.Notify(OnNext x)
+                                handler.Notify(OnNext x)
                             | Some prev ->
                                 if prev <> x then
                                     last <- Some x
-                                    observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                                    handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
-/// Returns elements until the other observable emits.
-let takeUntil (other: Observable<'b>) (source: Observable<'a>) : Observable<'a> =
+/// Returns elements until the other factor emits.
+let takeUntil (other: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable stopped = false
 
-            let otherObserver =
+            let otherHandler =
                 { Notify =
                     fun n ->
                         if not stopped then
                             match n with
                             | OnNext _ ->
                                 stopped <- true
-                                observer.Notify(OnCompleted)
+                                handler.Notify(OnCompleted)
                             | OnError e ->
                                 stopped <- true
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted -> () }
 
-            let otherDisp = other.Subscribe(otherObserver)
+            let otherHandle = other.Subscribe(otherHandler)
 
-            let sourceObserver =
+            let sourceHandler =
                 { Notify =
                     fun n ->
                         if not stopped then
                             match n with
-                            | OnNext x -> observer.Notify(OnNext x)
+                            | OnNext x -> handler.Notify(OnNext x)
                             | OnError e ->
                                 stopped <- true
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 stopped <- true
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(sourceObserver)
+            let sourceHandle = source.Subscribe(sourceHandler)
 
             { Dispose =
                 fun () ->
-                    sourceDisp.Dispose()
-                    otherDisp.Dispose() } }
+                    sourceHandle.Dispose()
+                    otherHandle.Dispose() } }
 
 /// Returns the last N elements from the source.
-let takeLast (count: int) (source: Observable<'a>) : Observable<'a> =
+let takeLast (count: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let buffer = System.Collections.Generic.Queue<'a>()
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
@@ -209,138 +209,138 @@ let takeLast (count: int) (source: Observable<'a>) : Observable<'a> =
 
                             if buffer.Count > count then
                                 buffer.Dequeue() |> ignore
-                        | OnError e -> observer.Notify(OnError e)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
                             for item in buffer do
-                                observer.Notify(OnNext item)
+                                handler.Notify(OnNext item)
 
-                            observer.Notify(OnCompleted) }
+                            handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Takes only the first element. Errors if source is empty.
-let first (source: Observable<'a>) : Observable<'a> =
+let first (source: Factor<'a, string>) : Factor<'a, string> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable gotValue = false
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if not gotValue then
                             match n with
                             | OnNext x ->
                                 gotValue <- true
-                                observer.Notify(OnNext x)
-                                observer.Notify(OnCompleted)
-                            | OnError e -> observer.Notify(OnError e)
-                            | OnCompleted -> observer.Notify(OnError "Sequence contains no elements") }
+                                handler.Notify(OnNext x)
+                                handler.Notify(OnCompleted)
+                            | OnError e -> handler.Notify(OnError e)
+                            | OnCompleted -> handler.Notify(OnError "Sequence contains no elements") }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Takes only the last element. Errors if source is empty.
-let last (source: Observable<'a>) : Observable<'a> =
+let last (source: Factor<'a, string>) : Factor<'a, string> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable latest: 'a option = None
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x -> latest <- Some x
-                        | OnError e -> observer.Notify(OnError e)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
                             match latest with
                             | Some x ->
-                                observer.Notify(OnNext x)
-                                observer.Notify(OnCompleted)
-                            | None -> observer.Notify(OnError "Sequence contains no elements") }
+                                handler.Notify(OnNext x)
+                                handler.Notify(OnCompleted)
+                            | None -> handler.Notify(OnError "Sequence contains no elements") }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Emits a default value if the source completes without emitting.
-let defaultIfEmpty (defaultValue: 'a) (source: Observable<'a>) : Observable<'a> =
+let defaultIfEmpty (defaultValue: 'a) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable hasValue = false
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             hasValue <- true
-                            observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
+                            handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
                             if not hasValue then
-                                observer.Notify(OnNext defaultValue)
+                                handler.Notify(OnNext defaultValue)
 
-                            observer.Notify(OnCompleted) }
+                            handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Samples the source when the sampler emits.
-let sample (sampler: Observable<'b>) (source: Observable<'a>) : Observable<'a> =
+let sample (sampler: Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable latest: 'a option = None
             let mutable sourceDone = false
             let mutable samplerDone = false
 
-            let samplerObserver =
+            let samplerHandler =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext _ ->
                             match latest with
                             | Some x ->
-                                observer.Notify(OnNext x)
+                                handler.Notify(OnNext x)
                                 latest <- None
                             | None -> ()
-                        | OnError e -> observer.Notify(OnError e)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
                             samplerDone <- true
 
                             if sourceDone then
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let samplerDisp = sampler.Subscribe(samplerObserver)
+            let samplerHandle = sampler.Subscribe(samplerHandler)
 
-            let sourceObserver =
+            let sourceHandler =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x -> latest <- Some x
-                        | OnError e -> observer.Notify(OnError e)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
                             sourceDone <- true
 
                             if samplerDone then
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(sourceObserver)
+            let sourceHandle = source.Subscribe(sourceHandler)
 
             { Dispose =
                 fun () ->
-                    sourceDisp.Dispose()
-                    samplerDisp.Dispose() } }
+                    sourceHandle.Dispose()
+                    samplerHandle.Dispose() } }
 
 /// Filters out all duplicate values (not just consecutive).
-let distinct (source: Observable<'a>) : Observable<'a> =
+let distinct (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let seen = System.Collections.Generic.HashSet<'a>()
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             if seen.Add(x) then
-                                observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                                handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }

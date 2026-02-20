@@ -1,4 +1,4 @@
-/// Factor - Reactive Extensions for BEAM via Fable
+/// Factor - Composable Actors for BEAM via Fable
 ///
 /// Main API facade module that re-exports all public types and operators.
 module Factor.Rx
@@ -9,34 +9,34 @@ open Factor.Types
 // Re-export types
 // ============================================================================
 
-type Observable<'a> = Factor.Types.Observable<'a>
-type Observer<'a> = Factor.Types.Observer<'a>
-type Disposable = Factor.Types.Disposable
-type Notification<'a> = Factor.Types.Notification<'a>
+type Factor<'T, 'E> = Factor.Types.Factor<'T, 'E>
+type Handler<'T, 'E> = Factor.Types.Handler<'T, 'E>
+type Handle = Factor.Types.Handle
+type Notification<'T, 'E> = Factor.Types.Notification<'T, 'E>
 
 // ============================================================================
-// Observer helpers
+// Handler helpers
 // ============================================================================
 
-let makeObserver onNext onError onCompleted = Types.makeObserver onNext onError onCompleted
-let makeNextObserver onNext = Types.makeNextObserver onNext
-let onNext observer value = Types.onNext observer value
-let onError observer error = Types.onError observer error
-let onCompleted observer = Types.onCompleted observer
-let notify observer notification = Types.notify observer notification
+let makeHandler onNext onError onCompleted = Types.makeHandler onNext onError onCompleted
+let makeNextHandler onNext = Types.makeNextHandler onNext
+let onNext handler value = Types.onNext handler value
+let onError handler error = Types.onError handler error
+let onCompleted handler = Types.onCompleted handler
+let notify handler notification = Types.notify handler notification
 
 // ============================================================================
 // Subscribe helper
 // ============================================================================
 
-let subscribe (observer: Observer<'a>) (observable: Observable<'a>) : Disposable = observable.Subscribe(observer)
+let subscribe (handler: Handler<'a, 'e>) (factor: Factor<'a, 'e>) : Handle = factor.Subscribe(handler)
 
 // ============================================================================
-// Disposable helpers
+// Handle helpers
 // ============================================================================
 
-let emptyDisposable () = Types.emptyDisposable ()
-let compositeDisposable disposables = Types.compositeDisposable disposables
+let emptyHandle () = Types.emptyHandle ()
+let compositeHandle handles = Types.compositeHandle handles
 
 // ============================================================================
 // Creation operators
@@ -131,11 +131,25 @@ let share source = Subject.share source
 // ============================================================================
 
 let retry maxRetries source = Error.retry maxRetries source
-
 let catch handler source = Error.catch handler source
+let mapError f source = Error.mapError f source
 
 // ============================================================================
 // Interop operators
 // ============================================================================
 
 let tapSend send source = Interop.tapSend send source
+
+// ============================================================================
+// Actor types and operators
+// ============================================================================
+
+type Pid<'Msg> = Actor.Pid<'Msg>
+type Actor<'Msg, 'T> = Actor.Actor<'Msg, 'T>
+type ActorContext<'Msg> = Actor.ActorContext<'Msg>
+
+let actor = Actor.actor
+let spawn body = Actor.spawn body
+let send pid msg = Actor.send pid msg
+let self () = Actor.self ()
+let rec' f initial = Actor.rec' f initial

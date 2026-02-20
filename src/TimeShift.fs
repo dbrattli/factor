@@ -16,10 +16,10 @@ let private timerSchedule (ms: int) (callback: unit -> unit) : obj = nativeOnly
 [<Emit("factor_timer:cancel($0)")>]
 let private timerCancel (timer: obj) : unit = nativeOnly
 
-/// Creates an observable that emits 0 after the specified delay, then completes.
-let timer (delayMs: int) : Observable<int> =
+/// Creates a factor that emits 0 after the specified delay, then completes.
+let timer (delayMs: int) : Factor<int, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
 
             let _ =
@@ -27,15 +27,15 @@ let timer (delayMs: int) : Observable<int> =
                     delayMs
                     (fun () ->
                         if not disposed then
-                            observer.Notify(OnNext 0)
-                            observer.Notify(OnCompleted))
+                            handler.Notify(OnNext 0)
+                            handler.Notify(OnCompleted))
 
             { Dispose = fun () -> disposed <- true } }
 
-/// Creates an observable that emits incrementing integers at regular intervals.
-let interval (periodMs: int) : Observable<int> =
+/// Creates a factor that emits incrementing integers at regular intervals.
+let interval (periodMs: int) : Factor<int, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
             let mutable count = 0
 
@@ -51,7 +51,7 @@ let interval (periodMs: int) : Observable<int> =
                                 if not disposed then
                                     let c = count
                                     count <- count + 1
-                                    observer.Notify(OnNext c)
+                                    handler.Notify(OnNext c)
                                     tick ())
 
                     ()
@@ -60,14 +60,14 @@ let interval (periodMs: int) : Observable<int> =
             { Dispose = fun () -> disposed <- true } }
 
 /// Delays each emission from the source by the specified time.
-let delay (ms: int) (source: Observable<'a>) : Observable<'a> =
+let delay (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
             let mutable pending = 0
             let mutable sourceCompleted = false
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if not disposed then
@@ -80,31 +80,31 @@ let delay (ms: int) (source: Observable<'a>) : Observable<'a> =
                                         ms
                                         (fun () ->
                                             if not disposed then
-                                                observer.Notify(OnNext x)
+                                                handler.Notify(OnNext x)
                                                 pending <- pending - 1
 
                                                 if sourceCompleted && pending = 0 then
-                                                    observer.Notify(OnCompleted))
+                                                    handler.Notify(OnCompleted))
 
                                 ()
-                            | OnError e -> observer.Notify(OnError e)
+                            | OnError e -> handler.Notify(OnError e)
                             | OnCompleted ->
                                 sourceCompleted <- true
 
                                 if pending = 0 then
-                                    observer.Notify(OnCompleted) }
+                                    handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(upstreamObserver)
+            let sourceHandle = source.Subscribe(upstream)
 
             { Dispose =
                 fun () ->
                     disposed <- true
-                    sourceDisp.Dispose() } }
+                    sourceHandle.Dispose() } }
 
 /// Emits a value only after the specified time has passed without another emission.
-let debounce (ms: int) (source: Observable<'a>) : Observable<'a> =
+let debounce (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
             let mutable latest: 'a option = None
             let mutable currentTimer: obj option = None
@@ -116,7 +116,7 @@ let debounce (ms: int) (source: Observable<'a>) : Observable<'a> =
                     currentTimer <- None
                 | None -> ()
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if not disposed then
@@ -132,35 +132,35 @@ let debounce (ms: int) (source: Observable<'a>) : Observable<'a> =
                                             if not disposed then
                                                 match latest with
                                                 | Some v ->
-                                                    observer.Notify(OnNext v)
+                                                    handler.Notify(OnNext v)
                                                     latest <- None
                                                 | None -> ())
 
                                 currentTimer <- Some t
                             | OnError e ->
                                 cancelTimer ()
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 cancelTimer ()
 
                                 match latest with
-                                | Some x -> observer.Notify(OnNext x)
+                                | Some x -> handler.Notify(OnNext x)
                                 | None -> ()
 
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(upstreamObserver)
+            let sourceHandle = source.Subscribe(upstream)
 
             { Dispose =
                 fun () ->
                     disposed <- true
                     cancelTimer ()
-                    sourceDisp.Dispose() } }
+                    sourceHandle.Dispose() } }
 
 /// Rate limits emissions to at most one per specified period.
-let throttle (ms: int) (source: Observable<'a>) : Observable<'a> =
+let throttle (ms: int) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
             let mutable inWindow = false
             let mutable latest: 'a option = None
@@ -187,48 +187,48 @@ let throttle (ms: int) (source: Observable<'a>) : Observable<'a> =
                                 if not disposed then
                                     match latest with
                                     | Some x ->
-                                        observer.Notify(OnNext x)
+                                        handler.Notify(OnNext x)
                                         latest <- None
                                         startWindow ()
                                     | None -> inWindow <- false)
 
                     currentTimer <- Some t
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if not disposed then
                             match n with
                             | OnNext x ->
                                 if not inWindow then
-                                    observer.Notify(OnNext x)
+                                    handler.Notify(OnNext x)
                                     startWindow ()
                                 else
                                     latest <- Some x
                             | OnError e ->
                                 cancelTimer ()
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 cancelTimer ()
 
                                 match latest with
-                                | Some x -> observer.Notify(OnNext x)
+                                | Some x -> handler.Notify(OnNext x)
                                 | None -> ()
 
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(upstreamObserver)
+            let sourceHandle = source.Subscribe(upstream)
 
             { Dispose =
                 fun () ->
                     disposed <- true
                     cancelTimer ()
-                    sourceDisp.Dispose() } }
+                    sourceHandle.Dispose() } }
 
 /// Errors if no emission occurs within the specified timeout period.
-let timeout (ms: int) (source: Observable<'a>) : Observable<'a> =
+let timeout (ms: int) (source: Factor<'a, string>) : Factor<'a, string> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable disposed = false
             let mutable currentTimer: obj option = None
 
@@ -245,32 +245,32 @@ let timeout (ms: int) (source: Observable<'a>) : Observable<'a> =
                         ms
                         (fun () ->
                             if not disposed then
-                                observer.Notify(OnError(sprintf "Timeout: no emission within %dms" ms)))
+                                handler.Notify(OnError(sprintf "Timeout: no emission within %dms" ms)))
 
                 currentTimer <- Some t
 
             startTimer ()
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         if not disposed then
                             match n with
                             | OnNext x ->
                                 cancelTimer ()
-                                observer.Notify(OnNext x)
+                                handler.Notify(OnNext x)
                                 startTimer ()
                             | OnError e ->
                                 cancelTimer ()
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 cancelTimer ()
-                                observer.Notify(OnCompleted) }
+                                handler.Notify(OnCompleted) }
 
-            let sourceDisp = source.Subscribe(upstreamObserver)
+            let sourceHandle = source.Subscribe(upstream)
 
             { Dispose =
                 fun () ->
                     disposed <- true
                     cancelTimer ()
-                    sourceDisp.Dispose() } }
+                    sourceHandle.Dispose() } }

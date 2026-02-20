@@ -1,60 +1,60 @@
 /// Transform operators for Factor
 ///
-/// These operators transform the elements of an observable sequence.
+/// These operators transform the elements of a Factor sequence.
 module Factor.Transform
 
 open Factor.Types
 
-/// Returns an observable whose elements are the result of invoking
+/// Returns a factor whose elements are the result of invoking
 /// the mapper function on each element of the source.
-let map (mapper: 'a -> 'b) (source: Observable<'a>) : Observable<'b> =
+let map (mapper: 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     { Subscribe =
-        fun observer ->
-            let upstreamObserver =
+        fun handler ->
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
-                        | OnNext x -> observer.Notify(OnNext(mapper x))
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                        | OnNext x -> handler.Notify(OnNext(mapper x))
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
-/// Returns an observable whose elements are the result of invoking
+/// Returns a factor whose elements are the result of invoking
 /// the mapper function on each element and its index.
-let mapi (mapper: 'a -> int -> 'b) (source: Observable<'a>) : Observable<'b> =
+let mapi (mapper: 'a -> int -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable index = 0
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             let i = index
                             index <- index + 1
-                            observer.Notify(OnNext(mapper x i))
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                            handler.Notify(OnNext(mapper x i))
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
-/// Flattens an Observable of Observables by merging inner emissions.
+/// Flattens a Factor of Factors by merging inner emissions.
 ///
-/// The maxConcurrency parameter controls how many inner observables
+/// The maxConcurrency parameter controls how many inner factors
 /// can be subscribed to concurrently:
 /// - None: Unlimited concurrency
 /// - Some(1): Sequential (equivalent to concatInner)
-/// - Some(n): At most n inner observables active at once
-let mergeInner (maxConcurrency: int option) (source: Observable<Observable<'a>>) : Observable<'a> =
+/// - Some(n): At most n inner factors active at once
+let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable innerCount = 0
             let mutable outerStopped = false
             let mutable disposed = false
-            let queue = System.Collections.Generic.Queue<Observable<'a>>()
-            let innerDisposables = System.Collections.Generic.Dictionary<int, Disposable>()
+            let queue = System.Collections.Generic.Queue<Factor<'a, 'e>>()
+            let innerHandles = System.Collections.Generic.Dictionary<int, Handle>()
             let mutable nextInnerId = 1
 
             let canSubscribe () =
@@ -63,41 +63,41 @@ let mergeInner (maxConcurrency: int option) (source: Observable<Observable<'a>>)
                 | Some max -> innerCount < max
 
             // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable subscribeToInner: Observable<'a> -> unit = fun _ -> ()
+            let mutable subscribeToInner: Factor<'a, 'e> -> unit = fun _ -> ()
 
             subscribeToInner <-
-                fun (inner: Observable<'a>) ->
+                fun (inner: Factor<'a, 'e>) ->
                     let innerId = nextInnerId
                     nextInnerId <- nextInnerId + 1
                     innerCount <- innerCount + 1
 
-                    let innerObserver =
+                    let innerHandler =
                         { Notify =
                             fun n ->
                                 if not disposed then
                                     match n with
-                                    | OnNext value -> observer.Notify(OnNext value)
+                                    | OnNext value -> handler.Notify(OnNext value)
                                     | OnError e ->
                                         // Dispose all active inner subscriptions on error
-                                        for kv in innerDisposables do
+                                        for kv in innerHandles do
                                             kv.Value.Dispose()
 
-                                        innerDisposables.Clear()
-                                        observer.Notify(OnError e)
+                                        innerHandles.Clear()
+                                        handler.Notify(OnError e)
                                     | OnCompleted ->
                                         innerCount <- innerCount - 1
-                                        innerDisposables.Remove(innerId) |> ignore
+                                        innerHandles.Remove(innerId) |> ignore
 
                                         if queue.Count > 0 then
                                             let next = queue.Dequeue()
                                             subscribeToInner next
                                         elif outerStopped && innerCount <= 0 then
-                                            observer.Notify(OnCompleted) }
+                                            handler.Notify(OnCompleted) }
 
-                    let innerDisp = inner.Subscribe(innerObserver)
-                    innerDisposables.[innerId] <- innerDisp
+                    let innerHandle = inner.Subscribe(innerHandler)
+                    innerHandles.[innerId] <- innerHandle
 
-            let outerObserver =
+            let outerHandler =
                 { Notify =
                     fun n ->
                         if not disposed then
@@ -108,68 +108,68 @@ let mergeInner (maxConcurrency: int option) (source: Observable<Observable<'a>>)
                                 else
                                     queue.Enqueue(inner)
                             | OnError e ->
-                                for kv in innerDisposables do
+                                for kv in innerHandles do
                                     kv.Value.Dispose()
 
-                                innerDisposables.Clear()
-                                observer.Notify(OnError e)
+                                innerHandles.Clear()
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 outerStopped <- true
 
                                 if innerCount <= 0 && queue.Count = 0 then
-                                    observer.Notify(OnCompleted) }
+                                    handler.Notify(OnCompleted) }
 
-            let outerDisp = source.Subscribe(outerObserver)
+            let outerHandle = source.Subscribe(outerHandler)
 
             { Dispose =
                 fun () ->
                     disposed <- true
-                    outerDisp.Dispose()
+                    outerHandle.Dispose()
 
-                    for kv in innerDisposables do
+                    for kv in innerHandles do
                         kv.Value.Dispose()
 
-                    innerDisposables.Clear() } }
+                    innerHandles.Clear() } }
 
-/// Flattens an Observable of Observables by concatenating in order.
-let concatInner (source: Observable<Observable<'a>>) : Observable<'a> = mergeInner (Some 1) source
+/// Flattens a Factor of Factors by concatenating in order.
+let concatInner (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> = mergeInner (Some 1) source
 
-/// Projects each element into an observable and merges the results.
-let flatMap (mapper: 'a -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element into a factor and merges the results.
+let flatMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> map mapper |> mergeInner None
 
-/// Projects each element into an observable and concatenates in order.
-let concatMap (mapper: 'a -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element into a factor and concatenates in order.
+let concatMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> map mapper |> concatInner
 
-/// Projects each element and its index into an observable and merges.
-let flatMapi (mapper: 'a -> int -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element and its index into a factor and merges.
+let flatMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> mapi mapper |> mergeInner None
 
-/// Projects each element and its index into an observable and concatenates.
-let concatMapi (mapper: 'a -> int -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element and its index into a factor and concatenates.
+let concatMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> mapi mapper |> concatInner
 
-/// Flattens an Observable of Observables by switching to the latest.
-let switchInner (source: Observable<Observable<'a>>) : Observable<'a> =
+/// Flattens a Factor of Factors by switching to the latest.
+let switchInner (source: Factor<Factor<'a, 'e>, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable currentId = 0
             let mutable nextId = 1
             let mutable outerStopped = false
             let mutable hasActive = false
             let mutable disposed = false
-            let mutable currentDisposable: Disposable option = None
+            let mutable currentHandle: Handle option = None
 
-            let outerObserver =
+            let outerHandler =
                 { Notify =
                     fun n ->
                         if not disposed then
                             match n with
-                            | OnNext innerObservable ->
+                            | OnNext innerFactor ->
                                 // Dispose previous inner
-                                match currentDisposable with
-                                | Some d -> d.Dispose()
+                                match currentHandle with
+                                | Some h -> h.Dispose()
                                 | None -> ()
 
                                 let id = nextId
@@ -177,153 +177,153 @@ let switchInner (source: Observable<Observable<'a>>) : Observable<'a> =
                                 currentId <- id
                                 hasActive <- true
 
-                                let innerObserver =
+                                let innerHandler =
                                     { Notify =
                                         fun innerN ->
                                             if not disposed then
                                                 match innerN with
                                                 | OnNext value ->
                                                     if id = currentId then
-                                                        observer.Notify(OnNext value)
+                                                        handler.Notify(OnNext value)
                                                 | OnError e ->
-                                                    match currentDisposable with
-                                                    | Some d -> d.Dispose()
+                                                    match currentHandle with
+                                                    | Some h -> h.Dispose()
                                                     | None -> ()
 
-                                                    observer.Notify(OnError e)
+                                                    handler.Notify(OnError e)
                                                 | OnCompleted ->
                                                     if id = currentId then
                                                         if outerStopped then
-                                                            observer.Notify(OnCompleted)
+                                                            handler.Notify(OnCompleted)
                                                         else
                                                             hasActive <- false
-                                                            currentDisposable <- None }
+                                                            currentHandle <- None }
 
-                                let innerDisp = innerObservable.Subscribe(innerObserver)
-                                currentDisposable <- Some innerDisp
+                                let innerH = innerFactor.Subscribe(innerHandler)
+                                currentHandle <- Some innerH
                             | OnError e ->
-                                match currentDisposable with
-                                | Some d -> d.Dispose()
+                                match currentHandle with
+                                | Some h -> h.Dispose()
                                 | None -> ()
 
-                                observer.Notify(OnError e)
+                                handler.Notify(OnError e)
                             | OnCompleted ->
                                 outerStopped <- true
 
                                 if not hasActive then
-                                    observer.Notify(OnCompleted) }
+                                    handler.Notify(OnCompleted) }
 
-            let outerDisp = source.Subscribe(outerObserver)
+            let outerHandle = source.Subscribe(outerHandler)
 
             { Dispose =
                 fun () ->
                     disposed <- true
-                    outerDisp.Dispose()
+                    outerHandle.Dispose()
 
-                    match currentDisposable with
-                    | Some d -> d.Dispose()
+                    match currentHandle with
+                    | Some h -> h.Dispose()
                     | None -> () } }
 
-/// Projects each element into an observable and switches to the latest.
-let switchMap (mapper: 'a -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element into a factor and switches to the latest.
+let switchMap (mapper: 'a -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> map mapper |> switchInner
 
-/// Projects each element and its index into an observable and switches to latest.
-let switchMapi (mapper: 'a -> int -> Observable<'b>) (source: Observable<'a>) : Observable<'b> =
+/// Projects each element and its index into a factor and switches to latest.
+let switchMapi (mapper: 'a -> int -> Factor<'b, 'e>) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     source |> mapi mapper |> switchInner
 
 /// Performs a side effect for each emission without transforming.
-let tap (effect: 'a -> unit) (source: Observable<'a>) : Observable<'a> =
+let tap (effect: 'a -> unit) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
-            let upstreamObserver =
+        fun handler ->
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             effect x
-                            observer.Notify(OnNext x)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                            handler.Notify(OnNext x)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Prepends values before the source emissions.
-let startWith (values: 'a list) (source: Observable<'a>) : Observable<'a> =
+let startWith (values: 'a list) (source: Factor<'a, 'e>) : Factor<'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             for v in values do
-                observer.Notify(OnNext v)
+                handler.Notify(OnNext v)
 
-            source.Subscribe(observer) }
+            source.Subscribe(handler) }
 
 /// Emits consecutive pairs of values.
-let pairwise (source: Observable<'a>) : Observable<'a * 'a> =
+let pairwise (source: Factor<'a, 'e>) : Factor<'a * 'a, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable prev: 'a option = None
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             match prev with
-                            | Some p -> observer.Notify(OnNext(p, x))
+                            | Some p -> handler.Notify(OnNext(p, x))
                             | None -> ()
 
                             prev <- Some x
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Applies an accumulator function over the source, emitting each intermediate result.
-let scan (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Observable<'a>) : Observable<'b> =
+let scan (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable acc = initial
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x ->
                             acc <- accumulator acc x
-                            observer.Notify(OnNext acc)
-                        | OnError e -> observer.Notify(OnError e)
-                        | OnCompleted -> observer.Notify(OnCompleted) }
+                            handler.Notify(OnNext acc)
+                        | OnError e -> handler.Notify(OnError e)
+                        | OnCompleted -> handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
 /// Applies an accumulator function over the source, emitting only the final value.
-let reduce (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Observable<'a>) : Observable<'b> =
+let reduce (initial: 'b) (accumulator: 'b -> 'a -> 'b) (source: Factor<'a, 'e>) : Factor<'b, 'e> =
     { Subscribe =
-        fun observer ->
+        fun handler ->
             let mutable acc = initial
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
                         | OnNext x -> acc <- accumulator acc x
-                        | OnError e -> observer.Notify(OnError e)
+                        | OnError e -> handler.Notify(OnError e)
                         | OnCompleted ->
-                            observer.Notify(OnNext acc)
-                            observer.Notify(OnCompleted) }
+                            handler.Notify(OnNext acc)
+                            handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
 
-/// Groups elements by key, returning an observable of grouped observables.
-let groupBy (keySelector: 'a -> 'k) (source: Observable<'a>) : Observable<'k * Observable<'a>> =
+/// Groups elements by key, returning a factor of grouped factors.
+let groupBy (keySelector: 'a -> 'k) (source: Factor<'a, 'e>) : Factor<'k * Factor<'a, 'e>, 'e> =
     { Subscribe =
-        fun observer ->
-            let groups = System.Collections.Generic.Dictionary<'k, Observer<'a> list>()
+        fun handler ->
+            let groups = System.Collections.Generic.Dictionary<'k, Handler<'a, 'e> list>()
             let buffers = System.Collections.Generic.Dictionary<'k, 'a list>()
             let emittedKeys = System.Collections.Generic.HashSet<'k>()
             let mutable terminated = false
 
-            let upstreamObserver =
+            let upstream =
                 { Notify =
                     fun n ->
                         match n with
@@ -332,29 +332,29 @@ let groupBy (keySelector: 'a -> 'k) (source: Observable<'a>) : Observable<'k * O
                             let isNew = emittedKeys.Add(key)
 
                             if isNew then
-                                let groupObservable: Observable<'a> =
+                                let groupFactor: Factor<'a, 'e> =
                                     { Subscribe =
-                                        fun groupObserver ->
+                                        fun groupHandler ->
                                             // Flush buffer
                                             match buffers.TryGetValue(key) with
                                             | true, buf ->
                                                 for v in buf do
-                                                    groupObserver.Notify(OnNext v)
+                                                    groupHandler.Notify(OnNext v)
 
                                                 buffers.Remove(key) |> ignore
                                             | _ -> ()
 
                                             if terminated then
-                                                groupObserver.Notify(OnCompleted)
+                                                groupHandler.Notify(OnCompleted)
 
                                             // Add subscriber
                                             match groups.TryGetValue(key) with
-                                            | true, subs -> groups.[key] <- groupObserver :: subs
-                                            | _ -> groups.[key] <- [ groupObserver ]
+                                            | true, subs -> groups.[key] <- groupHandler :: subs
+                                            | _ -> groups.[key] <- [ groupHandler ]
 
-                                            emptyDisposable () }
+                                            emptyHandle () }
 
-                                observer.Notify(OnNext(key, groupObservable))
+                                handler.Notify(OnNext(key, groupFactor))
 
                             // Forward to group subscribers or buffer
                             match groups.TryGetValue(key) with
@@ -370,7 +370,7 @@ let groupBy (keySelector: 'a -> 'k) (source: Observable<'a>) : Observable<'k * O
                                 for sub in kv.Value do
                                     sub.Notify(OnError e)
 
-                            observer.Notify(OnError e)
+                            handler.Notify(OnError e)
                         | OnCompleted ->
                             terminated <- true
 
@@ -378,6 +378,6 @@ let groupBy (keySelector: 'a -> 'k) (source: Observable<'a>) : Observable<'k * O
                                 for sub in kv.Value do
                                     sub.Notify(OnCompleted)
 
-                            observer.Notify(OnCompleted) }
+                            handler.Notify(OnCompleted) }
 
-            source.Subscribe(upstreamObserver) }
+            source.Subscribe(upstream) }
