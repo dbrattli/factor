@@ -1,16 +1,16 @@
 # Factor Architecture
 
-Factor is a Reactive Extensions (Rx) library for the Erlang/BEAM runtime, written in F# and compiled to Erlang via Fable.Beam. This document explains the design principles and architectural decisions.
+Factor is a composable actor framework for the Erlang/BEAM runtime, written in F# and compiled to Erlang via Fable.Beam. This document explains the design principles and architectural decisions.
 
 ## Overview
 
 Factor implements the Reactive Extensions pattern: composable, push-based streams of asynchronous events. It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx), leveraging the BEAM runtime for concurrency and fault tolerance.
 
 ```text
-Observable (source) → Operator (transform) → Observer (sink)
-                            ↓
-                     State Management
-                   (mutable variables / closures)
+Factor (source) → Operator (transform) → Handler (sink)
+                        ↓
+                 State Management
+         (mutable variables / stream actors)
 ```
 
 ## Core Types
@@ -22,34 +22,34 @@ All core types are defined in `src/Types.fs` (`Factor.Types` module):
 The atoms of the Rx grammar. Every event in a stream is one of:
 
 ```fsharp
-type Notification<'a> =
-    | OnNext of 'a       // A value
+type Notification<'T> =
+    | OnNext of 'T       // A value
     | OnError of string  // An error (terminal)
     | OnCompleted        // Stream end (terminal)
 ```
 
-### Observer
+### Handler
 
 A consumer of notifications. Contains a single Notify function:
 
 ```fsharp
-type Observer<'a> = { Notify: Notification<'a> -> unit }
+type Handler<'T> = { Notify: Notification<'T> -> unit }
 ```
 
-### Observable
+### Factor
 
-A lazy, push-based stream. Contains a Subscribe function that connects an observer and returns a disposal handle:
+A lazy, push-based stream. Contains a Subscribe function that connects a handler and returns a disposal handle:
 
 ```fsharp
-type Observable<'a> = { Subscribe: Observer<'a> -> Disposable }
+type Factor<'T> = { Subscribe: Handler<'T> -> Handle }
 ```
 
-### Disposable
+### Handle
 
 A handle for resource cleanup and unsubscription:
 
 ```fsharp
-type Disposable = { Dispose: unit -> unit }
+type Handle = { Dispose: unit -> unit }
 ```
 
 ## The Rx Contract
@@ -60,7 +60,7 @@ Factor enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 - At most one terminal event (`OnError` or `OnCompleted`)
 - No events after a terminal event
 
-The `SafeObserver.wrap` function enforces this contract by:
+The `SafeHandler.wrap` function enforces this contract by:
 
 1. Tracking a mutable `stopped` flag
 2. Ignoring events after terminal
@@ -71,16 +71,16 @@ The `SafeObserver.wrap` function enforces this contract by:
 ### Subscription Flow
 
 ```text
-1. Observer created by consumer
-2. Consumer calls observable.Subscribe(observer)
-3. Observable sets up upstream subscription
-4. Returns Disposable to consumer
+1. Handler created by consumer
+2. Consumer calls factor.Subscribe(handler)
+3. Factor sets up upstream subscription
+4. Returns Handle to consumer
 
-     Consumer                    Observable                    Source
-        │                            │                           │
-        │──Subscribe(observer)──────►│                           │
-        │                            │──Subscribe(upstream)─────►│
-        │◄───────Disposable──────────│◄────────Disposable────────│
+     Consumer                    Factor                       Source
+        │                          │                            │
+        │──Subscribe(handler)─────►│                            │
+        │                          │──Subscribe(upstream)──────►│
+        │◄──────Handle─────────────│◄──────────Handle───────────│
 ```
 
 ### Event Flow
@@ -90,11 +90,11 @@ Source emits OnNext(value)
     ↓
 Operator transforms/filters
     ↓
-Observer receives notification
+Handler receives notification
     ↓
-On terminal: Disposable.Dispose() called
+On terminal: Handle.Dispose() called
 
-     Source                     Operator                    Observer
+     Source                     Operator                    Handler
         │                           │                          │
         │───OnNext(x)──────────────►│                          │
         │                           │───OnNext(f(x))──────────►│
@@ -108,62 +108,114 @@ On terminal: Disposable.Dispose() called
 
 ```text
 src/
-├── Types.fs          # Core types: Observable, Observer, Notification, Disposable
-├── SafeObserver.fs   # Rx grammar enforcement
+├── Types.fs          # Core types: Factor, Handler, Notification, Handle
+├── SafeHandler.fs    # Rx grammar enforcement
 ├── Create.fs         # Creation: single, empty, never, fail, ofList, defer
-├── Transform.fs      # Transform: map, flatMap, concatMap, switchMap, scan, reduce, groupBy
+├── Process.fs        # BEAM process management FFI, stream actor FFI
+├── Transform.fs      # Transform: map, flatMap, flatMapSpawned, mergeInner,
+│                     #   mergeInnerSpawned, concatMap, switchMap, scan, reduce, groupBy
 ├── Filter.fs         # Filter: filter, take, skip, distinct, sample
 ├── Combine.fs        # Combine: merge, zip, combineLatest, concat, amb, forkJoin
 ├── TimeShift.fs      # Time: timer, interval, delay, debounce, throttle, timeout
-├── Subject.fs        # Subjects: subject, singleSubject, publish, share
+├── Stream.fs         # Streams: stream, singleStream, publish, share
 ├── Error.fs          # Error handling: retry, catch
 ├── Interop.fs        # Interop helpers: tapSend
-├── Builder.fs        # Computation expression builder (rx { ... })
+├── Actor.fs          # CPS-based actor computation expression
+├── Builder.fs        # Computation expression builder (factor { ... })
 └── Factor.fs         # API facade (Factor.Reactive module), re-exports all operators
+
+erl/
+├── factor_actor.erl  # Process spawning, child_loop, exit/child registries
+├── factor_timer.erl  # Timer scheduling via erlang:send_after
+└── factor_stream.erl # Stream actor processes (multicast + single-subscriber)
 ```
 
 ## State Management
 
-Factor uses **mutable variables** for state management in all operators. On BEAM (via Fable.Beam), mutable variables are backed by the Erlang process dictionary, which provides per-process mutable storage.
+Factor uses two complementary approaches to state management:
 
-This is a significant simplification over the original Gleam version, which spawned dedicated actors (processes) for every stateful operator. In F#, since all operators run synchronously in the subscriber's process context, simple mutable variables suffice.
+### Mutable Variables (Inline)
+
+Most operators use mutable variables for state. On BEAM (via Fable.Beam), mutable variables are backed by the Erlang process dictionary. All stateful operators run synchronously in the subscriber's process context.
+
+### Stream Actors (Cross-Process)
+
+Streams (`stream()`, `singleStream()`) and `groupBy` sub-groups are backed by dedicated BEAM actor processes that manage state via message passing. This solves the cross-process problem: when a child process needs to subscribe to a stream, the actor handles subscriber registration without accessing another process's dictionary.
+
+## Two Composition Modes
+
+### Pipe Operators (Inline)
+
+`flatMap`, `mergeInner`, and other pipe operators subscribe inline in the subscriber's process. Mutable state (process dictionary, `Dictionary`, `HashSet`) is safe to use.
+
+```fsharp
+source
+|> Reactive.groupBy key         // groupBy creates stream actor per group
+|> Reactive.flatMap (fun (k, group) ->
+    group |> Reactive.map transform)  // inline subscribe, same process
+```
+
+### Computation Expression (Process-Spawning)
+
+`factor { let! ... }` desugars to `flatMapSpawned`, which spawns a linked child process for each inner subscription. This creates supervision boundaries — child crashes are caught and converted to `OnError`.
+
+```fsharp
+factor {
+    let! x = source     // spawns child process
+    let! y = other       // spawns child process
+    return x + y
+}
+```
+
+**Constraint:** The CE body runs in spawned child processes, so it must NOT reference parent process dictionary state (mutable variables, `Dictionary`). Only capture immutable values and actor-based streams.
+
+### Notification Path
+
+When CE children subscribe to stream actors, notifications follow a two-hop path:
+
+```text
+Stream Actor ──{factor_child}──► Child Process ──{factor_child}──► Parent Process
+                                  (childLoop)                       (process_timers)
+```
+
+## Operator Patterns
 
 ### Stateless Operators
 
-Simple transformations create a new observer inline:
+Simple transformations create a new handler inline:
 
 ```fsharp
-let map (mapper: 'a -> 'b) (source: Observable<'a>) : Observable<'b> =
-    { Subscribe = fun observer ->
-        let upstreamObserver =
+let map (mapper: 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
+    { Subscribe = fun handler ->
+        let upstream =
             { Notify = fun n ->
                 match n with
-                | OnNext x -> observer.Notify(OnNext(mapper x))
-                | OnError e -> observer.Notify(OnError e)
-                | OnCompleted -> observer.Notify(OnCompleted) }
-        source.Subscribe(upstreamObserver) }
+                | OnNext x -> handler.Notify(OnNext(mapper x))
+                | OnError e -> handler.Notify(OnError e)
+                | OnCompleted -> handler.Notify(OnCompleted) }
+        source.Subscribe(upstream) }
 ```
 
 ### Stateful Operators
 
-Operators needing state use mutable variables:
+Operators needing state use mutable variables (created at subscribe time in the subscriber's process):
 
 ```fsharp
-let take (count: int) (source: Observable<'a>) : Observable<'a> =
-    { Subscribe = fun observer ->
+let take (count: int) (source: Factor<'T>) : Factor<'T> =
+    { Subscribe = fun handler ->
         let mutable remaining = count
-        let upstreamObserver =
+        let upstream =
             { Notify = fun n ->
                 if remaining > 0 then
                     match n with
                     | OnNext x ->
                         remaining <- remaining - 1
-                        observer.Notify(OnNext x)
+                        handler.Notify(OnNext x)
                         if remaining = 0 then
-                            observer.Notify(OnCompleted)
-                    | OnError e -> observer.Notify(OnError e)
-                    | OnCompleted -> observer.Notify(OnCompleted) }
-        source.Subscribe(upstreamObserver) }
+                            handler.Notify(OnCompleted)
+                    | OnError e -> handler.Notify(OnError e)
+                    | OnCompleted -> handler.Notify(OnCompleted) }
+        source.Subscribe(upstream) }
 ```
 
 ### Composed Operators
@@ -171,123 +223,146 @@ let take (count: int) (source: Observable<'a>) : Observable<'a> =
 Higher-level operators are composed from primitives:
 
 ```fsharp
-// flatMap = map + mergeInner (unlimited concurrency)
+// flatMap = map + mergeInner (inline, unlimited concurrency)
 let flatMap mapper source =
     source |> map mapper |> mergeInner None
 
-// concatMap = map + concatInner
+// flatMapSpawned = map + mergeInnerSpawned (child processes)
+let flatMapSpawned mapper source =
+    source |> map mapper |> mergeInnerSpawned
+
+// concatMap = map + concatInner (sequential)
 let concatMap mapper source =
     source |> map mapper |> concatInner
 
-// switchMap = map + switchInner
-let switchMap mapper source =
-    source |> map mapper |> switchInner
+// concatInner = mergeInner with maxConcurrency=1
+let concatInner source =
+    mergeInner (Some 1) source
 ```
 
-Note that `concatInner` is itself implemented as `mergeInner (Some 1)`, making `mergeInner` the unified primitive for all concurrency-controlled flattening.
+`mergeInner` accepts a `maxConcurrency` parameter:
 
-## Cold vs Hot Observables
+- `None` — unlimited concurrency (subscribe to all immediately)
+- `Some 1` — sequential processing (equivalent to `concatInner`)
+- `Some n` — at most n inner factors active, queue the rest
 
-### Cold Observables
+### Actor-Based Operators
 
-Most operators produce **cold** observables:
+`groupBy` creates a `singleStream` actor per group key, routing values via message passing:
+
+```fsharp
+// Each group is a singleStream actor — buffers before subscribe,
+// handles subscriber management via messages, works cross-process
+let groupBy keySelector source =
+    // Dictionary maps keys to (streamPid, notify) pairs
+    // Stream actors handle buffering and subscriber management
+    ...
+```
+
+## Stream Actors
+
+Each stream is backed by a BEAM actor process (`factor_stream.erl`):
+
+- **`stream()`** — multicast, `#{Ref => Pid}` subscriber map
+- **`singleStream()`** — single subscriber with buffering
+
+Subscribe is **synchronous** (send + wait for ack) to prevent races between subscribe and first notify. Stream actors are linked to their creator via `spawn_link`.
+
+## Cold vs Hot Factors
+
+### Cold Factors
+
+Most operators produce **cold** factors:
 
 - Each subscription triggers a new execution
 - No sharing of side effects between subscribers
 - Created by `ofList`, `single`, `timer`, etc.
 
-### Hot Observables / Subjects
+### Hot Factors / Streams
 
-**Subjects** are both Observer and Observable:
+**Streams** are both Handler and Factor:
 
-- `subject()` - Multicast to multiple subscribers (no buffering)
-- `singleSubject()` - Single subscriber with buffering
-- `publish()` - Convert cold to hot (manual connect)
-- `share()` - Auto-connecting multicast with refcount
+- `stream()` — Multicast stream actor, multiple subscribers (no buffering)
+- `singleStream()` — Single subscriber stream actor with buffering
+- `publish()` — Convert cold to hot (manual connect)
+- `share()` — Auto-connecting multicast with refcount
 
 ```fsharp
 // Cold: each subscriber gets independent stream
-let cold = interval 100
+let cold = Reactive.interval 100
 
 // Hot: subscribers share same stream
-let hot = cold |> share
+let hot = cold |> Reactive.share
 ```
 
-## Flattening Strategies
+## Message Dispatch
 
-When dealing with `Observable<Observable<'a>>`, three strategies exist:
+Processes that subscribe to streams or use time-based operators must handle two message types:
 
-| Strategy | Operator      | Behavior                                |
-| -------- | ------------- | --------------------------------------- |
-| Merge    | `mergeInner`  | Subscribe to all, forward all emissions |
-| Concat   | `concatInner` | Process one at a time, preserve order   |
-| Switch   | `switchInner` | Cancel previous on new arrival          |
+- `{factor_timer, Ref, Callback}` — Timer callbacks from `erlang:send_after`
+- `{factor_child, Ref, Notification}` — Notifications from stream actors or child processes
 
-### Concurrency Control with mergeInner
-
-`mergeInner` accepts a `maxConcurrency` parameter:
-
-```fsharp
-// Unlimited concurrency (subscribe to all immediately)
-source |> mergeInner None
-
-// Sequential processing (equivalent to concatInner)
-source |> mergeInner (Some 1)
-
-// Limited concurrency (at most 3 active at once)
-source |> mergeInner (Some 3)
-```
+The `process_timers` loop (for subscribers) and `child_loop` (for spawned children) both handle these messages. Custom receive loops (e.g., cowboy WebSocket handlers) must also handle `{factor_child, ...}` to receive stream notifications.
 
 ## Time-Based Operators
 
-Time operators use Erlang FFI via `Fable.Core.Emit` for scheduling:
+Time operators use a native Erlang module (`factor_timer`) that schedules callbacks via `erlang:send_after`. Callbacks are delivered as messages to `self()` and executed by the message pump:
 
-- `timer(ms)` - Emit 0 after delay, then complete
-- `interval(ms)` - Emit 0, 1, 2... at regular intervals
-- `delay(ms)` - Delay each emission
-- `debounce(ms)` - Emit only after silence period
-- `throttle(ms)` - Rate limit to one per period
-- `timeout(ms)` - Error if no emission within period
-
-Erlang FFI bindings:
-
-```fsharp
-[<Emit("timer:apply_after($0, erlang, apply, [$1, []])")>]
-let timerApplyAfter (ms: int) (callback: unit -> unit) : obj = nativeOnly
-
-[<Emit("erlang:cancel_timer($0)")>]
-let erlangCancelTimer (timer: obj) : unit = nativeOnly
-```
+- `timer(ms)` — Emit 0 after delay, then complete
+- `interval(ms)` — Emit 0, 1, 2... at regular intervals
+- `delay(ms)` — Delay each emission
+- `debounce(ms)` — Emit only after silence period
+- `throttle(ms)` — Rate limit to one per period
+- `timeout(ms)` — Error if no emission within period
 
 ## Computation Expression Builder
 
-Factor provides an F# computation expression for monadic composition:
+Factor provides two computation expressions:
+
+### `factor { ... }` — Stream composition
+
+Each `let!` spawns a child process (supervision boundary):
 
 ```fsharp
 open Factor.Builder
 
 let example =
-    rx {
-        let! x = single 10
-        let! y = single 20
-        let! z = ofList [1; 2; 3]
+    factor {
+        let! x = Reactive.single 10
+        let! y = Reactive.single 20
+        let! z = Reactive.ofList [ 1; 2; 3 ]
         return x + y + z
     }
 // Emits: 31, 32, 33 then completes
 ```
 
+### `actor { ... }` — CPS-based actors
+
+For message-passing actors with typed PIDs:
+
+```fsharp
+open Factor.Actor
+
+let pid = spawn (fun ctx ->
+    actor {
+        let! msg = ctx.Recv()
+        // handle msg
+    })
+```
+
 ## Error Handling
 
-- `retry(n)` - Resubscribe on error, up to n times
-- `catch(handler)` - On error, switch to fallback observable
+- `retry(n)` — Resubscribe on error, up to n times
+- `catch(handler)` — On error, switch to fallback factor
 
-Errors propagate downstream and terminate the stream. The Rx contract ensures no further events after an error.
+Process crashes in spawned children are caught by exit monitors and converted to `OnError` with a formatted reason string.
 
 ## Design Principles
 
-1. **Laziness**: Observables don't execute until subscribed
+1. **Laziness**: Factors don't execute until subscribed
 2. **Composability**: Small operators compose into complex pipelines
-3. **Resource Safety**: Disposables ensure cleanup on completion/error/unsubscribe
+3. **Resource Safety**: Handles ensure cleanup on completion/error/unsubscribe
 4. **Rx Contract**: Grammar enforcement prevents illegal states
-5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for BEAM runtime benefits
-6. **Simplicity**: Mutable variables instead of actors for state management
+5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for lightweight processes and fault tolerance
+6. **Dual Composition**: Inline pipes for performance, CE spawning for supervision
+7. **Actor Encapsulation**: Streams and groups use actor processes to encapsulate mutable state across process boundaries
