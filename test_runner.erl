@@ -17,7 +17,8 @@
     merge_inner_test,
     amb_forkjoin_test,
     share_test,
-    group_by_test
+    group_by_test,
+    supervision_test
 ]).
 
 run() ->

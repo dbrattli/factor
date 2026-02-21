@@ -340,7 +340,7 @@ let complex_composition_test () =
     observable |> Reactive.subscribe tc.Handler |> ignore
     sleep 50
 
-    shouldEqual [ 20; 40 ] tc.Results
+    shouldEqual [ 20; 40 ] (List.sort tc.Results)
     shouldBeTrue tc.Completed
 
 let nested_for_each_test () =

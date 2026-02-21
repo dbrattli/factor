@@ -1,13 +1,14 @@
 /// Process management for Factor
 ///
-/// Provides FFI bindings for BEAM process operations:
-/// spawn_linked, monitor, kill, trap_exits, and registry-based
-/// child/exit handler dispatching for boundary operators.
+/// Provides FFI bindings for BEAM process operations and
+/// receive-based message loops for child/timer dispatching.
 module Factor.Process
 
 open Fable.Core
 
-// --- Erlang FFI for process management ---
+// ============================================================================
+// Erlang FFI for process management
+// ============================================================================
 
 /// Spawn a linked process. If the child dies, the parent gets an EXIT signal.
 [<Emit("factor_actor:spawn_linked($0)")>]
@@ -65,11 +66,73 @@ let exitNormal () : unit = nativeOnly
 [<Emit("factor_actor:format_reason($0)")>]
 let formatReason (reason: obj) : string = nativeOnly
 
-/// Child process message loop - processes timer, child, and EXIT messages until process exits.
-[<Emit("factor_actor:child_loop()")>]
-let childLoop () : unit = nativeOnly
+// ============================================================================
+// Receive-based message loops
+// ============================================================================
 
-// --- Stream actor FFI ---
+/// Message types received in process message loops.
+/// Each case maps to an Erlang tuple tag via CompiledName.
+type LoopMsg =
+    | [<CompiledName("factor_timer")>] FactorTimer of ref: obj * callback: (unit -> unit)
+    | [<CompiledName("factor_child")>] FactorChild of ref: obj * notification: obj
+    | [<CompiledName("EXIT")>] Exit of pid: obj * reason: obj
+
+/// Dispatch a child notification using the process dictionary registry.
+/// Looks up the handler by ref in the factor_children map.
+[<Emit("case erlang:get(factor_children) of undefined -> ok; FcM__ -> case FcM__ of #{$0 := FcH__} -> FcH__($1); #{} -> ok end end")>]
+let private dispatchChild (ref: obj) (notification: obj) : unit = nativeOnly
+
+/// Dispatch an exit signal using the process dictionary registry.
+/// Normal exits are filtered; abnormal exits look up handler by pid.
+[<Emit("case $1 of normal -> ok; _ -> case erlang:get(factor_exits) of undefined -> ok; FeM__ -> case FeM__ of #{$0 := FeH__} -> FeH__($1); #{} -> ok end end end")>]
+let private dispatchExit (pid: obj) (reason: obj) : unit = nativeOnly
+
+/// Child process message loop — F# implementation using Erlang.receive.
+///
+/// Blocks waiting for timer, child, and EXIT messages. Dispatches each
+/// message using the process dictionary registries, then loops.
+/// When a terminal event triggers exitNormal(), the process terminates.
+let rec childLoop () : unit =
+    match Erlang.receiveForever<LoopMsg> () with
+    | FactorTimer (_, callback) ->
+        callback ()
+        childLoop ()
+    | FactorChild (ref, notification) ->
+        dispatchChild ref notification
+        childLoop ()
+    | Exit (pid, reason) ->
+        dispatchExit pid reason
+        childLoop ()
+
+/// Timer-aware message pump loop — processes messages until endTime.
+let rec private processTimersLoop (endTime: int) : unit =
+    let remaining = endTime - Erlang.monotonicTimeMs ()
+
+    if remaining <= 0 then
+        ()
+    else
+        match Erlang.receive<LoopMsg> (min remaining 1) with
+        | Some (FactorTimer (_, callback)) ->
+            callback ()
+            processTimersLoop endTime
+        | Some (FactorChild (ref, notification)) ->
+            dispatchChild ref notification
+            processTimersLoop endTime
+        | Some (Exit (pid, reason)) ->
+            dispatchExit pid reason
+            processTimersLoop endTime
+        | None -> processTimersLoop endTime
+
+/// Timer-aware sleep: processes pending timer, child, and EXIT messages
+/// for the specified duration. Use this instead of timer:sleep to ensure
+/// callbacks execute in the current process.
+let processTimers (timeoutMs: int) : unit =
+    let endTime = Erlang.monotonicTimeMs () + timeoutMs
+    processTimersLoop endTime
+
+// ============================================================================
+// Stream actor FFI
+// ============================================================================
 
 /// Start a multicast stream actor process. Returns the pid.
 [<Emit("factor_stream:start_stream()")>]

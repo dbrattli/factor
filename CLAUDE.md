@@ -37,7 +37,7 @@ Factor (source) → Operator (transform) → Handler (sink)
 
 ### Core Types (src/Types.fs)
 
-- **Notification<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of string`, `OnCompleted`)
+- **Notification<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of exn`, `OnCompleted`)
 - **Handle**: Resource cleanup handle with `Dispose: unit -> unit`
 - **Handler<'T>**: Receives notifications via `Notify` callback
 - **Factor<'T>**: Lazy push-based stream with `Subscribe: Handler<'T> -> Handle`

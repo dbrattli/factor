@@ -17,6 +17,7 @@
     <Compile Include="AmbForkjoinTest.fs" />
     <Compile Include="ShareTest.fs" />
     <Compile Include="GroupByTest.fs" />
+    <Compile Include="SupervisionTest.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../src/Factor.fsproj" />

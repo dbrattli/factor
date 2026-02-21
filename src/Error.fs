@@ -61,7 +61,7 @@ let retry (maxRetries: int) (source: Factor<'T>) : Factor<'T> =
                     | None -> () } }
 
 /// On error, switches to a fallback factor returned by the handler.
-let catch (errorHandler: string -> Factor<'T>) (source: Factor<'T>) : Factor<'T> =
+let catch (errorHandler: exn -> Factor<'T>) (source: Factor<'T>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let mutable currentHandle: Handle option = None

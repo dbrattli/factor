@@ -347,7 +347,7 @@ let forkJoin (sources: Factor<'T> list) : Factor<'T list> =
                                                     handler.Notify(OnCompleted)
                                                 else
                                                     handler.Notify(
-                                                        OnError "fork_join: source completed without emitting"
+                                                        OnError(ForkJoinException "fork_join: source completed without emitting")
                                                     ) }
 
                         source.Subscribe(sourceHandler))

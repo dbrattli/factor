@@ -24,7 +24,7 @@ The atoms of the Rx grammar. Every event in a stream is one of:
 ```fsharp
 type Notification<'T> =
     | OnNext of 'T       // A value
-    | OnError of string  // An error (terminal)
+    | OnError of exn     // An error (terminal)
     | OnCompleted        // Stream end (terminal)
 ```
 
@@ -355,7 +355,7 @@ let pid = spawn (fun ctx ->
 - `retry(n)` — Resubscribe on error, up to n times
 - `catch(handler)` — On error, switch to fallback factor
 
-Process crashes in spawned children are caught by exit monitors and converted to `OnError` with a formatted reason string.
+Process crashes in spawned children are caught by exit monitors and converted to `OnError(ProcessExitException ...)` with a formatted reason.
 
 ## Design Principles
 

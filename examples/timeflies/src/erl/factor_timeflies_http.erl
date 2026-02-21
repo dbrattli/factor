@@ -57,7 +57,6 @@ init(Req0, State) ->
 <body>
   <div id=\"title\">Factor Timeflies Demo</div>
   <div id=\"stats\">
-    <div>Mode: <span class=\"stat-value\">flat_map</span></div>
     <div>In: <span id=\"in-rate\" class=\"stat-value\">0</span> msg/s</div>
     <div>Out: <span id=\"out-rate\" class=\"stat-value\">0</span> msg/s</div>
   </div>

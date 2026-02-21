@@ -6,15 +6,6 @@ module Factor.Reactive
 open Factor.Types
 
 // ============================================================================
-// Re-export types
-// ============================================================================
-
-type Factor<'T> = Factor.Types.Factor<'T>
-type Handler<'T> = Factor.Types.Handler<'T>
-type Handle = Factor.Types.Handle
-type Notification<'T> = Factor.Types.Notification<'T>
-
-// ============================================================================
 // Handler helpers
 // ============================================================================
 
