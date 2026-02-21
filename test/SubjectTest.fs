@@ -49,10 +49,10 @@ let single_subject_forwards_errors_test () =
     output |> Reactive.subscribe tc.Handler |> ignore
 
     Reactive.onNext input 1
-    Reactive.onError input "test error"
+    Reactive.onError input (FactorException "test error")
 
     shouldEqual [ 1 ] tc.Results
-    shouldEqual [ "test error" ] tc.Errors
+    shouldEqual [ FactorException "test error" ] tc.Errors
 
 let single_subject_dispose_stops_forwarding_test () =
     let tc = TestCollector<int>()

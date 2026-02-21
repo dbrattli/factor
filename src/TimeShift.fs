@@ -245,7 +245,7 @@ let timeout (ms: int) (source: Factor<'T>) : Factor<'T> =
                         ms
                         (fun () ->
                             if not disposed then
-                                handler.Notify(OnError(sprintf "Timeout: no emission within %dms" ms)))
+                                handler.Notify(OnError(TimeoutException(sprintf "Timeout: no emission within %dms" ms))))
 
                 currentTimer <- Some t
 

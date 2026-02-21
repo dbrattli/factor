@@ -84,18 +84,27 @@ let transformed =
 
 ## Error Handling
 
-Errors are `string` typed throughout:
+Errors are `exn` (exception) typed, enabling pattern matching on specific error categories:
 
 ```fsharp
-type Factor<'T> = { Subscribe: Handler<'T> -> Handle }
-type Notification<'T> = OnNext of 'T | OnError of string | OnCompleted
+type Notification<'T> = OnNext of 'T | OnError of exn | OnCompleted
+
+// Pre-defined exception types
+exception FactorException of string           // general purpose
+exception TimeoutException of string          // timeout operator
+exception SequenceEmptyException              // first/last on empty sequence
+exception ProcessExitException of string      // child process crash
+exception ForkJoinException of string         // forkJoin: source completed without emitting
 ```
 
-Process crashes (Level 3) are caught by monitors and converted to `OnError` with a formatted reason string.
+Process crashes are caught by monitors and converted to `OnError(ProcessExitException ...)`.
 
 ```fsharp
 source
-|> Reactive.catch (fun err -> Reactive.single fallbackValue)  // switch to fallback on error
+|> Reactive.catch (fun err ->
+    match err with
+    | :? TimeoutException -> Reactive.single fallbackValue
+    | _ -> Reactive.fail err)                                 // re-raise other errors
 |> Reactive.retry 3                                           // resubscribe on error
 ```
 
@@ -147,14 +156,14 @@ Reactive.onCompleted input
 
 ### Factor
 
-A `Factor<'T>` represents a lazy push-based stream of values `'T` with string errors. Factors don't produce values until subscribed to.
+A `Factor<'T>` represents a lazy push-based stream of values `'T` with exception-typed errors. Factors don't produce values until subscribed to.
 
 ### Handler
 
 A `Handler<'T>` receives notifications from a Factor:
 
 - `OnNext x` — Called for each value
-- `OnError e` — Called on error (terminal), with string error message
+- `OnError e` — Called on error (terminal), with exception value
 - `OnCompleted` — Called when complete (terminal)
 
 The Rx contract guarantees: `OnNext* (OnError | OnCompleted)?`
@@ -172,7 +181,7 @@ A `Handle` represents a subscription that can be cancelled. Call `Dispose()` to 
 | `single value`     | Emit single value, then complete      |
 | `empty ()`         | Complete immediately                  |
 | `never ()`         | Never emit, never complete            |
-| `fail error`       | Error immediately with string error   |
+| `fail error`       | Error immediately with given exception |
 | `ofList items`     | Emit all items from list              |
 | `defer factory`    | Create factor lazily on subscribe     |
 
@@ -263,7 +272,7 @@ A `Handle` represents a subscription that can be cancelled. Call `Dispose()` to 
 
 |         Function          |                   Description                    |
 | ------------------------- | ------------------------------------------------ |
-| `let! x = source`         | Bind (flatMapSpawned — spawns child process)    |
+| `let! x = source`         | Bind (flatMapSpawned — spawns child process)     |
 | `return value`            | Lift value into factor                           |
 | `return! source`          | Return from factor                               |
 | `for x in list do`        | Iterate list, concat results                     |

@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="Erlang.fs" />
     <Compile Include="SafeHandler.fs" />
     <Compile Include="Create.fs" />
     <Compile Include="Process.fs" />

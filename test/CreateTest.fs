@@ -71,20 +71,20 @@ let never_notifications_test () =
 
 let fail_emits_error_test () =
     let tc = TestCollector<int>()
-    Reactive.fail "test error" |> Reactive.subscribe tc.Handler |> ignore
+    Reactive.fail (FactorException "test error") |> Reactive.subscribe tc.Handler |> ignore
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "test error" ] tc.Errors
+    shouldEqual [ FactorException "test error" ] tc.Errors
 
 let fail_notifications_test () =
     let tc = TestCollector<int>()
-    Reactive.fail "error message" |> Reactive.subscribe tc.Handler |> ignore
-    shouldEqual [ OnError "error message" ] tc.Notifications
+    Reactive.fail (FactorException "error message") |> Reactive.subscribe tc.Handler |> ignore
+    shouldEqual [ OnError(FactorException "error message") ] tc.Notifications
 
 let fail_with_empty_message_test () =
     let tc = TestCollector<int>()
-    Reactive.fail "" |> Reactive.subscribe tc.Handler |> ignore
-    shouldEqual [ "" ] tc.Errors
+    Reactive.fail (FactorException "") |> Reactive.subscribe tc.Handler |> ignore
+    shouldEqual [ FactorException "" ] tc.Errors
 
 // ============================================================================
 // ofList tests

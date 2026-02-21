@@ -4,7 +4,7 @@ open Factor.Types
 open Factor.Reactive
 open Factor.Builder
 
-let text = "TIME FLIES LIKE AN ARROW WITH F# AND BEAM"
+let text = "TIME FLIES LIKE AN ARROW WITH F# AND FABLE.BEAM"
 
 type MousePos = { X: int; Y: int }
 

@@ -28,7 +28,7 @@ let never<'T> () : Factor<'T> =
     { Subscribe = fun _ -> emptyHandle () }
 
 /// Returns a factor that errors immediately with the given error.
-let fail (error: string) : Factor<'T> =
+let fail (error: exn) : Factor<'T> =
     { Subscribe =
         fun handler ->
             handler.Notify(OnError error)

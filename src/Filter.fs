@@ -235,7 +235,7 @@ let first (source: Factor<'T>) : Factor<'T> =
                                 handler.Notify(OnNext x)
                                 handler.Notify(OnCompleted)
                             | OnError e -> handler.Notify(OnError e)
-                            | OnCompleted -> handler.Notify(OnError "Sequence contains no elements") }
+                            | OnCompleted -> handler.Notify(OnError(SequenceEmptyException)) }
 
             source.Subscribe(upstream) }
 
@@ -256,7 +256,7 @@ let last (source: Factor<'T>) : Factor<'T> =
                             | Some x ->
                                 handler.Notify(OnNext x)
                                 handler.Notify(OnCompleted)
-                            | None -> handler.Notify(OnError "Sequence contains no elements") }
+                            | None -> handler.Notify(OnError(SequenceEmptyException)) }
 
             source.Subscribe(upstream) }
 

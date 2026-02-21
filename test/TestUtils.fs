@@ -4,19 +4,17 @@
 module Factor.TestUtils
 
 open Factor.Types
-open Fable.Core
 
-/// Timer-aware sleep: processes pending factor_timer callbacks
-/// while waiting, ensuring timer events execute in the current process.
-[<Emit("factor_timer:process_timers($0)")>]
-let sleep (ms: int) : unit = failwith "native"
+/// Timer-aware sleep: processes pending factor_timer, factor_child,
+/// and EXIT messages for the specified duration.
+let sleep (ms: int) : unit = Process.processTimers ms
 
 /// Simple test result collector using mutable state.
 /// Collects OnNext values, completion status, and errors.
 type TestCollector<'T>() =
     let mutable results: 'T list = []
     let mutable completed = false
-    let mutable errors: string list = []
+    let mutable errors: exn list = []
     let mutable notifications: Notification<'T> list = []
 
     member _.Results = List.rev results

@@ -61,7 +61,7 @@ let merge_inner_single_inner_test () =
 let merge_inner_error_propagates_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail "inner error"; Reactive.ofList [ 3; 4 ] ]
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail (FactorException "inner error"); Reactive.ofList [ 3; 4 ] ]
     |> Reactive.mergeInner None
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -126,7 +126,7 @@ let concat_inner_preserves_order_test () =
 let concat_inner_error_stops_processing_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail "inner error"; Reactive.ofList [ 3; 4 ] ]
+    Reactive.ofList [ Reactive.ofList [ 1; 2 ]; Reactive.fail (FactorException "inner error"); Reactive.ofList [ 3; 4 ] ]
     |> Reactive.concatInner
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -135,7 +135,7 @@ let concat_inner_error_stops_processing_test () =
 
     shouldEqual [ 1; 2 ] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "inner error" ] tc.Errors
+    shouldEqual [ FactorException "inner error" ] tc.Errors
 
 // ============================================================================
 // flatMap composition verification

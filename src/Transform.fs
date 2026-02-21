@@ -123,8 +123,11 @@ let mergeInner (maxConcurrency: int option) (source: Factor<Factor<'T>>) : Facto
 /// where inner factors are actor-based streams or pure computations.
 ///
 /// Child processes forward notifications to the parent via sendChildMsg.
-/// Crashes in children are caught and converted to OnError.
-let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
+/// The supervision policy controls crash handling:
+/// - Terminate: crash → OnError, pipeline dies (default)
+/// - Skip: crash → ignore, continue with other inners
+/// - Restart(n): crash → resubscribe inner, up to n times
+let mergeInnerSpawned (policy: SupervisionPolicy) (source: Factor<Factor<'T>>) : Factor<'T> =
     { Subscribe =
         fun handler ->
             let parentPid = Process.selfPid ()
@@ -134,11 +137,15 @@ let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
 
             Process.trapExits ()
 
+            let checkComplete () =
+                if outerStopped && innerCount <= 0 then
+                    handler.Notify(OnCompleted)
+
             // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable subscribeToInner: Factor<'T> -> unit = fun _ -> ()
+            let mutable subscribeToInner: Factor<'T> -> int -> unit = fun _ _ -> ()
 
             subscribeToInner <-
-                fun (inner: Factor<'T>) ->
+                fun (inner: Factor<'T>) (retriesLeft: int) ->
                     innerCount <- innerCount + 1
                     let childRef = Process.makeRef ()
 
@@ -157,9 +164,7 @@ let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
                                 | OnCompleted ->
                                     innerCount <- innerCount - 1
                                     Process.unregisterChild childRef
-
-                                    if outerStopped && innerCount <= 0 then
-                                        handler.Notify(OnCompleted))
+                                    checkComplete ())
 
                     // Spawn linked child process for this inner subscription
                     let childPid =
@@ -183,23 +188,40 @@ let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
                             if not innerDone then
                                 Process.childLoop ())
 
-                    // Register exit handler so crashes become OnError
+                    // Register exit handler — behavior depends on supervision policy
                     Process.registerExit
                         childPid
                         (fun reason ->
                             if not disposed then
-                                innerCount <- innerCount - 1
                                 Process.unregisterChild childRef
                                 Process.unregisterExit childPid
-                                disposed <- true
-                                handler.Notify(OnError(Process.formatReason reason)))
+                                innerCount <- innerCount - 1
+
+                                match policy with
+                                | Terminate ->
+                                    disposed <- true
+                                    handler.Notify(OnError(ProcessExitException(Process.formatReason reason)))
+                                | Skip ->
+                                    checkComplete ()
+                                | Restart _ ->
+                                    if retriesLeft > 0 then
+                                        subscribeToInner inner (retriesLeft - 1)
+                                    else
+                                        disposed <- true
+                                        handler.Notify(OnError(ProcessExitException(Process.formatReason reason))))
 
             let outerHandler =
                 { Notify =
                     fun n ->
                         if not disposed then
                             match n with
-                            | OnNext inner -> subscribeToInner inner
+                            | OnNext inner ->
+                                let maxRetries =
+                                    match policy with
+                                    | Restart n -> n
+                                    | _ -> 0
+
+                                subscribeToInner inner maxRetries
                             | OnError e ->
                                 disposed <- true
                                 handler.Notify(OnError e)
@@ -218,8 +240,9 @@ let mergeInnerSpawned (source: Factor<Factor<'T>>) : Factor<'T> =
 
 /// Projects each element into a factor and merges with process spawning.
 /// Each inner runs in its own linked child process (supervision boundary).
+/// Uses Terminate policy by default — child crashes become OnError.
 let flatMapSpawned (mapper: 'T -> Factor<'U>) (source: Factor<'T>) : Factor<'U> =
-    source |> map mapper |> mergeInnerSpawned
+    source |> map mapper |> mergeInnerSpawned Terminate
 
 /// Flattens a Factor of Factors by concatenating in order.
 let concatInner (source: Factor<Factor<'T>>) : Factor<'T> = mergeInner (Some 1) source

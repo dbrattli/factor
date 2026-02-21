@@ -151,14 +151,14 @@ let share_empty_source_test () =
 let share_error_propagates_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Test error"
+    Reactive.fail (FactorException "Test error")
     |> Reactive.share
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "Test error" ] tc.Errors
+    shouldEqual [ FactorException "Test error" ] tc.Errors
 
 let share_resubscribe_reconnects_test () =
     let tc1 = TestCollector<int>()

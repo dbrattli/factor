@@ -24,26 +24,26 @@ let retry_no_error_completes_normally_test () =
 let retry_max_retries_then_error_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Always fails"
+    Reactive.fail (FactorException "Always fails")
     |> Reactive.retry 2
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "Always fails" ] tc.Errors
+    shouldEqual [ FactorException "Always fails" ] tc.Errors
 
 let retry_zero_retries_propagates_immediately_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Immediate fail"
+    Reactive.fail (FactorException "Immediate fail")
     |> Reactive.retry 0
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "Immediate fail" ] tc.Errors
+    shouldEqual [ FactorException "Immediate fail" ] tc.Errors
 
 let retry_empty_source_test () =
     let tc = TestCollector<int>()
@@ -83,7 +83,7 @@ let retry_partial_then_error_resubscribes_test () =
                 Reactive.onNext observer 2
 
                 if count = 1 then
-                    Reactive.onError observer "First try fails"
+                    Reactive.onError observer (FactorException "First try fails")
                 else
                     Reactive.onCompleted observer
 
@@ -116,7 +116,7 @@ let catch_no_error_passes_through_test () =
 let catch_error_switches_to_fallback_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Oops"
+    Reactive.fail (FactorException "Oops")
     |> Reactive.catch (fun _ -> Reactive.single 42)
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -128,7 +128,7 @@ let catch_error_switches_to_fallback_test () =
 let catch_error_with_fallback_list_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error"
+    Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.ofList [ 10; 20; 30 ])
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -143,7 +143,7 @@ let catch_partial_emission_then_error_test () =
     Reactive.create (fun observer ->
         Reactive.onNext observer 1
         Reactive.onNext observer 2
-        Reactive.onError observer "Midway error"
+        Reactive.onError observer (FactorException "Midway error")
         Reactive.emptyHandle ())
     |> Reactive.catch (fun _ -> Reactive.ofList [ 100; 200 ])
     |> Reactive.subscribe tc.Handler
@@ -156,19 +156,19 @@ let catch_partial_emission_then_error_test () =
 let catch_handler_receives_error_message_test () =
     let tc = TestCollector<string>()
 
-    Reactive.fail "Custom error"
-    |> Reactive.catch (fun err -> Reactive.single ("Caught: " + err))
+    Reactive.fail (FactorException "Custom error")
+    |> Reactive.catch (fun err -> Reactive.single (sprintf "Caught: %A" err))
     |> Reactive.subscribe tc.Handler
     |> ignore
 
-    shouldEqual [ "Caught: Custom error" ] tc.Results
+    shouldEqual [ sprintf "Caught: %A" (FactorException "Custom error") ] tc.Results
     shouldBeTrue tc.Completed
     shouldEqual [] tc.Errors
 
 let catch_fallback_empty_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error"
+    Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.empty ())
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -180,20 +180,20 @@ let catch_fallback_empty_test () =
 let catch_fallback_also_errors_propagates_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error 1"
-    |> Reactive.catch (fun _ -> Reactive.fail "Error 2")
+    Reactive.fail (FactorException "Error 1")
+    |> Reactive.catch (fun _ -> Reactive.fail (FactorException "Error 2"))
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "Error 2" ] tc.Errors
+    shouldEqual [ FactorException "Error 2" ] tc.Errors
 
 let catch_chained_catches_both_errors_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error 1"
-    |> Reactive.catch (fun _ -> Reactive.fail "Error 2")
+    Reactive.fail (FactorException "Error 1")
+    |> Reactive.catch (fun _ -> Reactive.fail (FactorException "Error 2"))
     |> Reactive.catch (fun _ -> Reactive.single 999)
     |> Reactive.subscribe tc.Handler
     |> ignore
@@ -205,7 +205,7 @@ let catch_chained_catches_both_errors_test () =
 let catch_chained_first_succeeds_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error 1"
+    Reactive.fail (FactorException "Error 1")
     |> Reactive.catch (fun _ -> Reactive.ofList [ 1; 2; 3 ])
     |> Reactive.catch (fun _ -> Reactive.single 999)
     |> Reactive.subscribe tc.Handler
@@ -220,7 +220,7 @@ let catch_preserves_notification_sequence_test () =
 
     Reactive.create (fun observer ->
         Reactive.onNext observer 1
-        Reactive.onError observer "Error"
+        Reactive.onError observer (FactorException "Error")
         Reactive.emptyHandle ())
     |> Reactive.catch (fun _ ->
         Reactive.create (fun observer ->
@@ -239,7 +239,7 @@ let catch_preserves_notification_sequence_test () =
 let retry_then_catch_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error"
+    Reactive.fail (FactorException "Error")
     |> Reactive.retry 2
     |> Reactive.catch (fun _ -> Reactive.single 0)
     |> Reactive.subscribe tc.Handler
@@ -252,7 +252,7 @@ let retry_then_catch_test () =
 let catch_then_retry_test () =
     let tc = TestCollector<int>()
 
-    Reactive.fail "Error"
+    Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.single 42)
     |> Reactive.retry 2
     |> Reactive.subscribe tc.Handler

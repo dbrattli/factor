@@ -54,13 +54,13 @@ let race_is_alias_for_amb_test () =
 let amb_error_from_winner_propagates_test () =
     let tc = TestCollector<int>()
 
-    Reactive.amb [ Reactive.fail "error"; Reactive.timer 100 |> Reactive.map (fun _ -> 1) ]
+    Reactive.amb [ Reactive.fail (FactorException "error"); Reactive.timer 100 |> Reactive.map (fun _ -> 1) ]
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "error" ] tc.Errors
+    shouldEqual [ FactorException "error" ] tc.Errors
 
 // ============================================================================
 // forkJoin tests
@@ -116,13 +116,13 @@ let fork_join_empty_source_errors_test () =
 let fork_join_error_propagates_test () =
     let tc = TestCollector<int list>()
 
-    Reactive.forkJoin [ Reactive.ofList [ 1; 2 ]; Reactive.fail "oops"; Reactive.ofList [ 3 ] ]
+    Reactive.forkJoin [ Reactive.ofList [ 1; 2 ]; Reactive.fail (FactorException "oops"); Reactive.ofList [ 3 ] ]
     |> Reactive.subscribe tc.Handler
     |> ignore
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
-    shouldEqual [ "oops" ] tc.Errors
+    shouldEqual [ FactorException "oops" ] tc.Errors
 
 // ============================================================================
 // distinct tests
