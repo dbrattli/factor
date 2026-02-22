@@ -6,21 +6,61 @@ module Factor.Reactive
 open Factor.Types
 
 // ============================================================================
-// Handler helpers
+// Observer helpers (message-passing to process endpoints)
 // ============================================================================
 
-let makeHandler onNext onError onCompleted = Types.makeHandler onNext onError onCompleted
-let makeNextHandler onNext = Types.makeNextHandler onNext
-let onNext handler value = Types.onNext handler value
-let onError handler error = Types.onError handler error
-let onCompleted handler = Types.onCompleted handler
-let notify handler notification = Types.notify handler notification
+let onNext observer value = Process.onNext observer value
+let onError observer error = Process.onError observer error
+let onCompleted observer = Process.onCompleted observer
+let notify observer msg = Process.notify observer msg
 
 // ============================================================================
-// Subscribe helper
+// Sender helpers (push to channel actors)
 // ============================================================================
 
-let subscribe (handler: Handler<'T>) (factor: Factor<'T>) : Handle = factor.Subscribe(handler)
+let pushNext sender value = Process.pushNext sender value
+let pushError sender error = Process.pushError sender error
+let pushCompleted sender = Process.pushCompleted sender
+
+// ============================================================================
+// Spawn / Subscribe helpers
+// ============================================================================
+
+/// Subscribe an observer endpoint to a factor.
+let spawn (observer: Observer<'T>) (factor: Factor<'T>) : Handle = factor.Spawn(observer)
+
+/// Subscribe to a factor with user callbacks.
+/// Registers a child handler in the current process for receiving messages.
+/// The caller's process must run a message loop (sleep/processTimers).
+let subscribe
+    (onNextFn: 'T -> unit)
+    (onErrorFn: exn -> unit)
+    (onCompletedFn: unit -> unit)
+    (factor: Factor<'T>)
+    : Handle =
+    let ref = Process.makeRef ()
+
+    Process.registerChild
+        ref
+        (fun msg ->
+            let n = unbox<Msg<'T>> msg
+
+            match n with
+            | OnNext x -> onNextFn x
+            | OnError e ->
+                Process.unregisterChild ref
+                onErrorFn e
+            | OnCompleted ->
+                Process.unregisterChild ref
+                onCompletedFn ())
+
+    let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+    let handle = factor.Spawn(endpoint)
+
+    { Dispose =
+        fun () ->
+            Process.unregisterChild ref
+            handle.Dispose() }
 
 // ============================================================================
 // Handle helpers
@@ -51,7 +91,7 @@ let flatMap mapper source = Transform.flatMap mapper source
 let flatMapi mapper source = Transform.flatMapi mapper source
 let concatMap mapper source = Transform.concatMap mapper source
 let concatMapi mapper source = Transform.concatMapi mapper source
-let mergeInner maxConcurrency source = Transform.mergeInner maxConcurrency source
+let mergeInner policy maxConcurrency source = Transform.mergeInner policy maxConcurrency source
 let concatInner source = Transform.concatInner source
 let switchInner source = Transform.switchInner source
 let switchMap mapper source = Transform.switchMap mapper source
@@ -109,13 +149,13 @@ let throttle ms source = TimeShift.throttle ms source
 let timeout ms source = TimeShift.timeout ms source
 
 // ============================================================================
-// Stream operators
+// Channel operators
 // ============================================================================
 
-let stream () = Stream.stream ()
-let singleStream () = Stream.singleStream ()
-let publish source = Stream.publish source
-let share source = Stream.share source
+let channel () = Channel.channel ()
+let singleChannel () = Channel.singleChannel ()
+let publish source = Channel.publish source
+let share source = Channel.share source
 
 // ============================================================================
 // Error handling operators
@@ -139,7 +179,6 @@ type Actor<'Msg, 'T> = Actor.Actor<'Msg, 'T>
 type ActorContext<'Msg> = Actor.ActorContext<'Msg>
 
 let actor = Actor.actor
-let spawn body = Actor.spawn body
+let spawnActor body = Actor.spawn body
 let send pid msg = Actor.send pid msg
 let self () = Actor.self ()
-let rec' f initial = Actor.rec' f initial

@@ -5,18 +5,17 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Erlang.fs" />
-    <Compile Include="SafeHandler.fs" />
-    <Compile Include="Create.fs" />
+    <Compile Include="Actor.fs" />
     <Compile Include="Process.fs" />
+    <Compile Include="Create.fs" />
     <Compile Include="Transform.fs" />
     <Compile Include="Filter.fs" />
     <Compile Include="Combine.fs" />
     <Compile Include="TimeShift.fs" />
-    <Compile Include="Stream.fs" />
+    <Compile Include="Channel.fs" />
     <Compile Include="Error.fs" />
     <Compile Include="Interop.fs" />
-    <Compile Include="Actor.fs" />
-    <Compile Include="Builder.fs" />
+    <Compile Include="Flow.fs" />
     <Compile Include="Factor.fs" />
   </ItemGroup>
   <ItemGroup>

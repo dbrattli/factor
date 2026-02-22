@@ -1,4 +1,4 @@
-/// Tests for supervision policies in mergeInnerSpawned
+/// Tests for supervision policies in mergeInner
 module Factor.SupervisionTest
 
 open Factor.Types
@@ -7,13 +7,13 @@ open Factor.TestUtils
 
 // Helper: a factor that crashes during subscribe
 let crashFactor<'T> : Factor<'T> =
-    { Subscribe = fun _ -> failwith "crash!" }
+    { Spawn = fun _ -> failwith "crash!" }
 
 // Helper: a factor that emits a value then crashes
 let emitThenCrash (value: 'T) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            handler.Notify(OnNext value)
+    { Spawn =
+        fun observer ->
+            Process.onNext observer value
             failwith "crash after emit" }
 
 // ============================================================================
@@ -24,8 +24,8 @@ let terminate_produces_error_on_crash_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor ]
-    |> Transform.mergeInnerSpawned Terminate
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Terminate None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -36,8 +36,8 @@ let terminate_stops_pipeline_on_crash_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor; Reactive.single 42 ]
-    |> Transform.mergeInnerSpawned Terminate
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Terminate None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -53,8 +53,8 @@ let skip_continues_after_crash_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor; Reactive.ofList [ 1; 2; 3 ] ]
-    |> Transform.mergeInnerSpawned Skip
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Skip None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -67,8 +67,8 @@ let skip_completes_when_all_done_test () =
 
     // Only inner is a crash — should complete with no results
     Reactive.ofList [ crashFactor ]
-    |> Transform.mergeInnerSpawned Skip
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Skip None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -80,8 +80,8 @@ let skip_multiple_crashes_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor; crashFactor; Reactive.single 42; crashFactor ]
-    |> Transform.mergeInnerSpawned Skip
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Skip None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -93,8 +93,8 @@ let skip_all_crash_completes_empty_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor; crashFactor; crashFactor ]
-    |> Transform.mergeInnerSpawned Skip
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner Skip None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -111,8 +111,8 @@ let restart_exhausted_produces_error_test () =
 
     // Always crashes — Restart(2) means 1 initial + 2 retries = 3 attempts
     Reactive.ofList [ crashFactor ]
-    |> Transform.mergeInnerSpawned (Restart 2)
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner (Restart 2) None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 200
@@ -123,8 +123,8 @@ let restart_zero_retries_same_as_terminate_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ crashFactor ]
-    |> Transform.mergeInnerSpawned (Restart 0)
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner (Restart 0) None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -135,8 +135,8 @@ let restart_working_factor_completes_normally_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ Reactive.ofList [ 1; 2; 3 ] ]
-    |> Transform.mergeInnerSpawned (Restart 3)
-    |> Reactive.subscribe tc.Handler
+    |> Transform.mergeInner (Restart 3) None
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100
@@ -145,15 +145,15 @@ let restart_working_factor_completes_normally_test () =
     shouldEqual [] tc.Errors
 
 // ============================================================================
-// Policy with flatMapSpawned (default Terminate)
+// Policy with flatMap (default Terminate)
 // ============================================================================
 
 let flatmap_spawned_default_terminate_test () =
     let tc = TestCollector<int>()
 
     Reactive.ofList [ 1; 2; 3 ]
-    |> Transform.flatMapSpawned (fun x -> Reactive.single (x * 10))
-    |> Reactive.subscribe tc.Handler
+    |> Transform.flatMap (fun x -> Reactive.single (x * 10))
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 100

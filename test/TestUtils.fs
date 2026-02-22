@@ -11,26 +11,36 @@ let sleep (ms: int) : unit = Process.processTimers ms
 
 /// Simple test result collector using mutable state.
 /// Collects OnNext values, completion status, and errors.
+/// Registers a child handler in the current process and creates
+/// an observer endpoint (Pid + Ref) for the test process.
 type TestCollector<'T>() =
     let mutable results: 'T list = []
     let mutable completed = false
     let mutable errors: exn list = []
-    let mutable notifications: Notification<'T> list = []
+    let mutable msgs: Msg<'T> list = []
 
-    member _.Results = List.rev results
-    member _.Completed = completed
-    member _.Errors = List.rev errors
-    member _.Notifications = List.rev notifications
+    let ref = Process.makeRef ()
 
-    member _.Handler: Handler<'T> =
-        { Notify =
-            fun n ->
-                notifications <- n :: notifications
+    do
+        Process.registerChild
+            ref
+            (fun msg ->
+                let n = unbox<Msg<'T>> msg
+
+                msgs <- n :: msgs
 
                 match n with
                 | OnNext x -> results <- x :: results
                 | OnError e -> errors <- e :: errors
-                | OnCompleted -> completed <- true }
+                | OnCompleted -> completed <- true)
+
+    member _.Results = List.rev results
+    member _.Completed = completed
+    member _.Errors = List.rev errors
+    member _.Msgs = List.rev msgs
+
+    member _.Observer: Observer<'T> =
+        { Pid = Process.selfPid (); Ref = ref }
 
 /// Assertion: check equality
 let shouldEqual (expected: 'T) (actual: 'T) =

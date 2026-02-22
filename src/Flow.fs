@@ -1,47 +1,26 @@
-/// Builder module for Factor
+/// Flow module for Factor
 ///
 /// Provides computation expression builder for composing factors
 /// in a monadic style. Each `let!` desugars to flatMap, which
-/// spawns a child process creating a process boundary.
-module Factor.Builder
+/// spawns child processes creating supervision boundaries.
+module Factor.Flow
 
 open Factor.Types
 
 /// Bind a factor to a continuation function.
-/// Each inner runs in a spawned linked child process (supervision boundary).
-/// The continuation must NOT reference parent process dictionary state
-/// (mutable variables, Dictionary) — only immutable captures and actor-based streams.
+/// Uses flatMap — each inner runs in a spawned linked child process.
 let bind (source: Factor<'T>) (continuation: 'T -> Factor<'U>) : Factor<'U> =
-    Transform.flatMapSpawned continuation source
+    Transform.flatMap continuation source
 
 /// Lift a pure value into a factor.
-let ret (value: 'T) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            handler.Notify(OnNext value)
-            handler.Notify(OnCompleted)
-            emptyHandle () }
+let ret (value: 'T) : Factor<'T> = Create.single value
 
 /// Empty factor - completes immediately with no values.
-let zero<'T> () : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            handler.Notify(OnCompleted)
-            emptyHandle () }
+let zero<'T> () : Factor<'T> = Create.empty ()
 
 /// Combine two factors sequentially (concat).
 let combine (first: Factor<'T>) (second: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let firstHandler =
-                { Notify =
-                    fun n ->
-                        match n with
-                        | OnNext x -> handler.Notify(OnNext x)
-                        | OnError e -> handler.Notify(OnError e)
-                        | OnCompleted -> second.Subscribe(handler) |> ignore }
-
-            first.Subscribe firstHandler }
+    Combine.concat2 first second
 
 /// For each item in a list, apply a function and concat results.
 let forEach (items: 'T list) (f: 'T -> Factor<'U>) : Factor<'U> =
@@ -50,7 +29,7 @@ let forEach (items: 'T list) (f: 'T -> Factor<'U>) : Factor<'U> =
     | head :: tail -> List.fold (fun acc item -> combine acc (f item)) (f head) tail
 
 /// Computation expression builder for Factor.
-type FactorBuilder() =
+type FlowBuilder() =
     member _.Bind(source, continuation) = bind source continuation
     member _.Return(value) = ret value
     member _.ReturnFrom(source: Factor<'T>) = source
@@ -66,5 +45,5 @@ type FactorBuilder() =
         | [] -> zero ()
         | head :: tail -> List.fold (fun acc item -> combine acc (body item)) (body head) tail
 
-/// The factor computation expression.
-let factor = FactorBuilder()
+/// The flow computation expression.
+let flow = FlowBuilder()

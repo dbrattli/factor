@@ -4,7 +4,8 @@
          kill_process/1, trap_exits/0,
          make_ref/0, register_child/2, unregister_child/1,
          register_exit/2, unregister_exit/1,
-         exit_normal/0, format_reason/1, child_loop/0]).
+         exit_normal/0, format_reason/1, child_loop/0,
+         recv_child/2, recv_any_child/1]).
 
 %% Spawn a new process that runs Fun(ok).
 spawn_actor(Fun) ->
@@ -89,6 +90,57 @@ exit_normal() ->
 %% Format a crash reason as a string.
 format_reason(Reason) ->
     list_to_binary(io_lib:format("~p", [Reason])).
+
+%% Selective receive for a specific child ref.
+%% Transparently dispatches timer callbacks, exit signals,
+%% and non-matching child messages (via registry) while waiting.
+recv_child(Ref, Cont) ->
+    receive
+        {factor_child, Ref, Msg} -> Cont(Msg);
+        {factor_child, OtherRef, OtherMsg} ->
+            case get(factor_children) of
+                undefined -> ok;
+                Map ->
+                    case Map of
+                        #{OtherRef := Handler} -> Handler(OtherMsg);
+                        #{} -> ok
+                    end
+            end,
+            recv_child(Ref, Cont);
+        {factor_timer, _TRef, Callback} ->
+            Callback(ok),
+            recv_child(Ref, Cont);
+        {'EXIT', Pid, Reason} ->
+            dispatch_exit(Pid, Reason),
+            recv_child(Ref, Cont)
+    end.
+
+%% Selective receive for any child ref. Returns {Ref, Msg} to caller via Cont.
+%% Cont is a 2-arity fun (Fable.Beam compiles multi-arg lambdas as multi-arity funs).
+recv_any_child(Cont) ->
+    receive
+        {factor_child, Ref, Msg} -> Cont(Ref, Msg);
+        {factor_timer, _TRef, Callback} ->
+            Callback(ok),
+            recv_any_child(Cont);
+        {'EXIT', Pid, Reason} ->
+            dispatch_exit(Pid, Reason),
+            recv_any_child(Cont)
+    end.
+
+dispatch_exit(Pid, Reason) ->
+    case Reason of
+        normal -> ok;
+        _ ->
+            case get(factor_exits) of
+                undefined -> ok;
+                Map ->
+                    case Map of
+                        #{Pid := Handler} -> Handler(Reason);
+                        #{} -> ok
+                    end
+            end
+    end.
 
 %% Child process message loop.
 %% Blocks waiting for timer, child, and EXIT messages. When a terminal

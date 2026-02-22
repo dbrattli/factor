@@ -29,64 +29,58 @@ Fable.Beam compiler is expected at `../fable/fable-beam/src/Fable.Cli`.
 ## Architecture
 
 ```text
-Factor (source) → Operator (transform) → Handler (sink)
+Factor (source) → Operator (BEAM process) → Observer (process endpoint)
                         ↓
-                 State Management
-         (mutable variables / stream actors)
+                 Process-local State
+          (mutable variables in own process)
 ```
+
+Every operator in the pipeline is a BEAM process. Messages flow between processes via mailbox sends. Creation operators (`ofList`, `single`, `empty`, `fail`) are the exception — they send messages directly to the downstream process's mailbox without spawning a process of their own.
 
 ### Core Types (src/Types.fs)
 
-- **Notification<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of exn`, `OnCompleted`)
+- **Msg<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of exn`, `OnCompleted`)
 - **Handle**: Resource cleanup handle with `Dispose: unit -> unit`
-- **Handler<'T>**: Receives notifications via `Notify` callback
-- **Factor<'T>**: Lazy push-based stream with `Subscribe: Handler<'T> -> Handle`
+- **Observer<'T>**: Process endpoint `{ Pid: obj; Ref: obj }` — identifies a downstream process to send messages to
+- **Sender<'T>**: Push-side handle for channels `{ ChannelPid: obj }` — used to send messages into a channel actor
+- **Factor<'T>**: Lazy push-based actor with `Spawn: Observer<'T> -> Handle`
 
 ### Module Structure
 
 - **src/Factor.fs**: Main API facade (`Factor.Reactive` module), re-exports all operators
-- **src/Types.fs**: Core types (Factor, Handler, Notification, Handle)
-- **src/SafeHandler.fs**: Enforces Rx grammar (OnNext*, then optionally OnError or OnCompleted)
-- **src/Create.fs**: Creation operators (`create`, `single`, `empty`, `never`, `fail`, `ofList`, `defer`)
-- **src/Process.fs**: BEAM process management FFI, stream actor FFI (`spawnLinked`, `trapExits`, `startStream`, `streamSubscribe`, etc.)
-- **src/Transform.fs**: Transform operators (`map`, `mapi`, `flatMap`, `flatMapSpawned`, `mergeInner`, `mergeInnerSpawned`, `concatMap`, `concatMapi`, `switchInner`, `switchMap`, `switchMapi`, `tap`, `startWith`, `pairwise`, `scan`, `reduce`, `groupBy`)
+- **src/Types.fs**: Core types (Factor, Observer, Sender, Msg, Handle)
+- **src/Create.fs**: Creation operators (`create`, `single`, `empty`, `never`, `fail`, `ofList`, `defer`) — `single`, `empty`, `fail`, `ofList` send directly to downstream without spawning a process
+- **src/Process.fs**: BEAM process management FFI, channel actor FFI (`spawnLinked`, `trapExits`, `startStream`, `streamSubscribe`, etc.)
+- **src/Transform.fs**: Transform operators (`map`, `mapi`, `flatMap`, `mergeInner`, `concatMap`, `concatMapi`, `switchInner`, `switchMap`, `switchMapi`, `tap`, `startWith`, `pairwise`, `scan`, `reduce`, `groupBy`) — `mergeInner` takes `policy: SupervisionPolicy` and `maxConcurrency: int option`
 - **src/Filter.fs**: Filter operators (`filter`, `take`, `skip`, `takeWhile`, `skipWhile`, `choose`, `distinctUntilChanged`, `distinct`, `takeUntil`, `takeLast`, `first`, `last`, `defaultIfEmpty`, `sample`)
 - **src/Combine.fs**: Combining operators (`merge`, `merge2`, `combineLatest`, `withLatestFrom`, `zip`, `concat`, `concat2`, `amb`, `race`, `forkJoin`)
 - **src/TimeShift.fs**: Time-based operators (`timer`, `interval`, `delay`, `debounce`, `throttle`, `timeout`)
-- **src/Stream.fs**: Streams (`stream`, `singleStream`, `publish`, `share`) — `stream`/`singleStream` are BEAM actor processes
+- **src/Channel.fs**: Channels (`channel`, `singleChannel`, `publish`, `share`) — `channel`/`singleChannel` return `Sender<'T> * Factor<'T>`
 - **src/Error.fs**: Error handling (`retry`, `catch`)
 - **src/Interop.fs**: Interop helpers (`tapSend`)
 - **src/Actor.fs**: CPS-based actor computation expression (`actor { ... }` with `spawn`, `send`, `recv`)
-- **src/Builder.fs**: Computation expression builder (`factor { ... }` — `let!` uses `flatMapSpawned` for supervision)
+- **src/Flow.fs**: Computation expression builder (`flow { ... }` — `let!` uses `Transform.flatMap`, each binding is a process boundary)
 
 ### Erlang Modules
 
 - **src/erl/factor_actor.erl**: Process spawning, `child_loop`, exit/child handler registries
 - **src/erl/factor_timer.erl**: Timer scheduling via `erlang:send_after`
-- **src/erl/factor_stream.erl**: Stream actor processes (multicast + single-subscriber with buffering)
-
-### Two Composition Modes
-
-**Pipe operators** (`flatMap`, `mergeInner`) subscribe inline in the same process. Safe for mutable state (process dictionary, `Dictionary`, `HashSet`). No supervision boundaries.
-
-**Computation expression** (`factor { let! ... }`) uses `flatMapSpawned`/`mergeInnerSpawned` to spawn linked child processes. Creates supervision boundaries but must NOT reference parent process dictionary state from the CE body.
+- **src/erl/factor_stream.erl**: Channel actor processes (multicast + single-subscriber with buffering)
 
 ### State Management
 
-Most operators use **mutable variables** backed by the process dictionary. Streams (`stream()`, `singleStream()`) and `groupBy` sub-groups use **actor processes** to encapsulate state, enabling cross-process subscription.
-
-Time-based operators use Erlang FFI via `factor_timer:schedule` and `factor_timer:cancel`.
+Every operator is its own BEAM process. Mutable state (process dictionary, `Dictionary`, `HashSet`) is local to that operator's process and cannot be captured across process boundaries. Channels (`channel()`, `singleChannel()`) use dedicated actor processes for multicast/buffering. Time-based operators use Erlang FFI via `factor_timer:schedule` and `factor_timer:cancel`.
 
 ### Rx Contract
 
 The library enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 
 - After a terminal event (OnError or OnCompleted), no further events are delivered
-- `SafeHandler.wrap` handles this enforcement
+- Each operator process self-enforces by calling `Process.exitNormal()` upon receiving a terminal event — there is no separate SafeObserver wrapper
 
 ### Message Dispatch
 
-Processes subscribing to streams must handle `{factor_child, Ref, Notification}` messages. Processes using timers must handle `{factor_timer, Ref, Callback}`. Both `process_timers` (subscriber loop) and `child_loop` (spawned child loop) handle these.
+All operator processes handle `{factor_child, Ref, Msg}` messages (upstream data) and `{factor_timer, Ref, Callback}` messages (timer callbacks). Processes with linked children also handle `{'EXIT', Pid, Reason}` for supervision. Dispatch uses process dictionary registries: `factor_children`, `factor_exits`.
 
 ## Dependencies
 
