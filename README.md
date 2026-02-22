@@ -96,7 +96,7 @@ type Msg =
 
 let pid =
     spawn (fun ctx ->
-        rec' (fun loop () ->
+        let rec loop () =
             actor {
                 let! msg = ctx.Recv()
                 match msg with
@@ -104,7 +104,8 @@ let pid =
                     printfn "Hello, %s!" name
                     return! loop ()
                 | Stop -> return ()
-            }) ())
+            }
+        loop ())
 
 send pid (Greet "world")   // prints: Hello, world!
 send pid Stop              // actor exits
@@ -114,7 +115,7 @@ Key features:
 
 - **Typed PIDs** — `Pid<'Msg>` ensures only correctly-typed messages can be sent
 - **`ctx.Recv()`** — suspends the actor until a message arrives
-- **`rec'`** — recursive loop helper (workaround for Fable.Beam's `let rec` limitation)
+- **`let rec`** — idiomatic F# recursive loops for actor state machines
 - **`spawn`** — creates a new BEAM process running the actor body
 - **`send`** — sends a typed message to an actor
 
@@ -324,7 +325,7 @@ A `Handle` represents a spawned subscription that can be cancelled. Call `Dispos
 | `spawn body`              | Spawn a new BEAM process running the actor       |
 | `send pid msg`            | Send a typed message to an actor                 |
 | `let! msg = ctx.Recv()`   | Suspend until a message arrives                  |
-| `rec' loop initial`       | Recursive actor loop with state                  |
+| `let rec loop`            | Recursive loop for actor state machines          |
 | `return value`            | Complete the actor computation                   |
 | `return! computation`     | Tail-call into another actor computation         |
 
@@ -355,6 +356,44 @@ flow {
 }
 ```
 
+### Operator Implementation
+
+Operators use the `actor { }` computation expression with selective receive for message processing. Each operator spawns a linked process that loops receiving messages from upstream:
+
+```fsharp
+let map mapper source =
+    { Spawn = fun downstream ->
+        let ref = Process.makeRef ()
+        Process.spawnOp (fun () ->
+            let upstream = { Pid = Process.selfPid (); Ref = ref }
+            source.Spawn upstream |> ignore
+
+            let rec loop () = actor {
+                let! msg = Process.recvMsg<'T> ref
+                match msg with
+                | OnNext x ->
+                    Process.onNext downstream (mapper x)
+                    return! loop ()
+                | OnError e -> Process.onError downstream e
+                | OnCompleted -> Process.onCompleted downstream
+            }
+            loop ()) }
+```
+
+Multi-source operators use `recvAnyMsg` to receive from any upstream and match on the source ref:
+
+```fsharp
+let rec loop state = actor {
+    let! (ref, rawMsg) = Process.recvAnyMsg ()
+    if ref = ref1 then
+        match unbox<Msg<'T>> rawMsg with
+        // handle source 1 messages...
+    else
+        match unbox<Msg<'U>> rawMsg with
+        // handle source 2 messages...
+}
+```
+
 ### Channel Actors
 
 Each channel (`channel()`, `singleChannel()`) is backed by a separate BEAM actor process that manages a subscriber map. `channel()` returns a `Sender<'T> * Factor<'T>` pair: the `Sender` is used to push values via `pushNext`/`pushError`/`pushCompleted`, while the `Factor` side is subscribed to by downstream operators.
@@ -381,7 +420,7 @@ Higher-order operators are composed from primitives:
 ```fsharp
 // flatMap = map + mergeInner (spawns process per inner factor)
 let flatMap mapper source =
-    source |> map mapper |> mergeInner Merge None
+    source |> map mapper |> mergeInner Terminate None
 
 // concatMap = map + concatInner (sequential)
 let concatMap mapper source =
@@ -389,16 +428,12 @@ let concatMap mapper source =
 
 // concatInner = mergeInner with maxConcurrency=1
 let concatInner source =
-    mergeInner Merge (Some 1) source
-
-// switchInner = mergeInner with Switch policy
-let switchInner source =
-    mergeInner Switch None source
+    mergeInner Terminate (Some 1) source
 ```
 
-The `mergeInner` operator accepts a `policy` and `maxConcurrency` parameter:
+The `mergeInner` operator accepts a `SupervisionPolicy` and `maxConcurrency` parameter:
 
-- **Policy**: `Merge` (keep all active inners) or `Switch` (dispose previous on new inner)
+- **Policy**: `Terminate` (error propagates), `Skip` (skip crashed inner), `Restart n` (retry crashed inner up to n times)
 - `None` — unlimited concurrency (spawn all inner factors immediately)
 - `Some 1` — sequential processing (equivalent to `concatInner`)
 - `Some n` — at most n inner factors active, queue the rest
