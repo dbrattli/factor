@@ -4,6 +4,8 @@
 
 **Composability emerges from restriction.** The actor model is powerful but fundamentally non-composable — any process can send any message to any other process at any time. Factor makes actors composable by applying three nested constraints, each enabling a new level of composition.
 
+This approach is closest to Prokopec and Odersky's *Reactors* (2015), which identified the core problem: actors have a single untyped mailbox, conflate multiple protocols, and lack first-class event handling. Their solution — typed channels with functional combinators — is essentially what Factor implements on the BEAM, using F#'s type system for the typed channels and Rx operators for the combinators.
+
 ## The Three Layers
 
 ```text
@@ -42,7 +44,7 @@ Restricts the message vocabulary and sequencing.
 
 - **Messages**: Only `Msg<'T>` — `OnNext`, `OnError`, `OnCompleted`
 - **Protocol**: Rx grammar `OnNext* (OnError | OnCompleted)?`
-- **Enforcement**: Each operator process self-enforces the grammar by calling `Process.exitNormal()` after forwarding a terminal event. Process exit cascades via BEAM links — no wrapper needed.
+- **Enforcement**: Each operator process self-enforces the grammar — when the actor CE computation ends (no `return! loop`), the process exits naturally. Process exit cascades via BEAM links — no wrapper needed.
 - **Composability**: Partial — observers can be manually chained, but wiring is still imperative
 
 ```fsharp
@@ -50,14 +52,18 @@ Restricts the message vocabulary and sequencing.
 type Msg<'T> = OnNext of 'T | OnError of exn | OnCompleted
 type Observer<'T> = { Pid: obj; Ref: obj }  // process endpoint, not a callback
 
-// Rx grammar enforced by process self-termination:
-// On terminal event, forward to downstream and exit
-| OnError e -> Process.onError downstream e; Process.exitNormal ()
-| OnCompleted -> Process.onCompleted downstream; Process.exitNormal ()
-// Process exit cascades via links — Dispose IS Kill
+// Rx grammar enforced by process termination:
+// Terminal events end the actor loop — process exits, links cascade
+let rec loop () = actor {
+    let! msg = Process.recvMsg<'T> ref
+    match msg with
+    | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
+    | OnError e -> Process.onError downstream e          // no loop → exits
+    | OnCompleted -> Process.onCompleted downstream      // no loop → exits
+}
 ```
 
-**What this gains**: Because the protocol is fixed and known, generic transformations become possible. A `map` function can exist because it knows there are exactly three message types. Because each operator is a process, terminal events naturally cascade through BEAM links — no centralized grammar enforcement is needed.
+**What this gains**: Because the protocol is fixed and known, generic transformations become possible. A `map` function can exist because there are exactly three message types. Because each operator is a process, terminal events naturally cascade through BEAM links — no centralized grammar enforcement is needed.
 
 ### Layer 2: Observable-Actor (Factor)
 
@@ -72,21 +78,24 @@ Wraps the observer-actor in a spawn function — controls WHO sends. Every opera
 // Layer 2: spawnable, composable wrapper (Types.fs)
 type Factor<'T> = { Spawn: Observer<'T> -> Handle }
 
-// Every operator spawns a BEAM process
+// Every operator spawns a BEAM process using the actor CE
 let map (mapper: 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
     { Spawn = fun downstream ->
-        let pid = Process.spawnLinked (fun () ->
-            let ref = Process.makeRef ()
-            Process.registerChild ref (fun msg ->
-                let n = unbox<Msg<'T>> msg
-                match n with
-                | OnNext x -> Process.onNext downstream (mapper x)
-                | OnError e -> Process.onError downstream e; Process.exitNormal ()
-                | OnCompleted -> Process.onCompleted downstream; Process.exitNormal ())
-            let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-            source.Spawn(self) |> ignore
-            Process.childLoop ())
-        { Dispose = fun () -> Process.killProcess pid } }
+        let ref = Process.makeRef ()
+        Process.spawnOp (fun () ->
+            let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+            source.Spawn upstream |> ignore
+
+            let rec loop () = actor {
+                let! msg = Process.recvMsg<'T> ref
+                match msg with
+                | OnNext x ->
+                    Process.onNext downstream (mapper x)
+                    return! loop ()
+                | OnError e -> Process.onError downstream e
+                | OnCompleted -> Process.onCompleted downstream
+            }
+            loop ()) }
 ```
 
 **What this gains**: Because every operator is a process, the pipeline topology IS the BEAM process tree. Killing any process cascades via links. There is no separate "supervision" concern — the pipeline structure provides it inherently.
@@ -109,7 +118,7 @@ Raw actors accept arbitrary messages of any type. `Msg<'T>` restricts the vocabu
 
 ### Restriction 2: Constrain WHEN (Rx Grammar)
 
-Raw actors accept messages in any order, forever. The Rx grammar prescribes `OnNext* (OnError | OnCompleted)?` — terminal events are final. Each operator process self-enforces this by calling `Process.exitNormal()` after forwarding a terminal event. Process exit cascades through BEAM links, ensuring no further messages are delivered. This makes resource management possible — operators can clean up on termination.
+Raw actors accept messages in any order, forever. The Rx grammar prescribes `OnNext* (OnError | OnCompleted)?` — terminal events are final. Each operator process self-enforces this: when a terminal event arrives, the actor loop ends (no `return! loop`), the process exits naturally, and BEAM links cascade the termination. This makes resource management possible — operators can clean up on termination.
 
 ### Restriction 3: Constrain WHO (Spawn)
 
@@ -152,18 +161,19 @@ flow {
 // Parent supervises children — pipeline IS the supervision hierarchy
 ```
 
-### actor { } — Escape Hatch to Layer 0
+### actor { } — Layer 0 Foundation
 
-The Actor CE (`actor { let! msg = ctx.Recv() }`) is a direct Layer 0 primitive. It bypasses Layer 1 (arbitrary messages) and Layer 2 (no spawning model). Useful for patterns Rx can't express (blocking selective receive), but not composable with Factor pipelines without manual channel bridging.
+The Actor CE (`actor { let! msg = ctx.Recv() }`) is a direct Layer 0 primitive — the foundation that operators are built on. It provides CPS-based selective receive, which operators use internally via `recvMsg` and `recvAnyMsg`. It can also be used directly for patterns that Rx can't express (blocking selective receive, request-response), though bridging to Factor pipelines requires a channel.
 
 ```fsharp
 let counterActor = spawn (fun ctx ->
-    rec' (fun loop count -> actor {
+    let rec loop count = actor {
         let! msg = ctx.Recv()
         match msg with
         | Increment -> return! loop (count + 1)
         | GetCount replyPid -> send replyPid count
-    }) 0)
+    }
+    loop 0)
 ```
 
 ## The Actor-Observable Duality
@@ -174,12 +184,12 @@ let counterActor = spawn (fun ctx ->
 | Actor (running)      | Spawned subscription / `channel()` (hot) | Running process, addressable           |
 | Mailbox              | `channel()` / Sender input side          | Where messages arrive                  |
 | Behavior             | Operator pipeline                        | How messages are processed             |
-| State                | `scan` operator / mutable vars           | Accumulated over messages              |
+| State                | `scan` operator / `let rec` loop params  | Accumulated over messages              |
 | Spawn child          | `flatMap` / `mergeInner`                 | Creates linked child process           |
 | Send message         | `Process.onNext observer x` or `Reactive.pushNext sender x` | Push into process or channel |
 | Actor identity (Pid) | Channel process Pid                      | Addressable endpoint                   |
 | Actor lifecycle      | Handle (`Dispose` = shutdown)            | Resource management                    |
-| Supervision          | `SupervisionPolicy` on child processes   | `Terminate` / `Skip` / `Restart`       |
+| Supervision          | BEAM links + `SupervisionPolicy`         | Default: crash cascades. Override: policy on `mergeInner` |
 
 ### What Each Concept Really Is
 
@@ -242,18 +252,52 @@ The return side unifies lifetime management:
 
 The raw continuation monad returns `unit` — fire and forget. There is no way to cancel or manage what you started. The raw actor model has `exit/2` but it's external and unstructured — any process can kill any other.
 
-Factor's `Handle` unifies these: `Spawn` atomically returns the means to end what it started. **Dispose IS Kill.** Because every operator is a process that exits on terminal events (`Process.exitNormal()`), and processes are linked, error propagation IS supervision — BEAM links handle what OTP supervisors handle.
+Factor's `Handle` unifies these: `Spawn` atomically returns the means to end what it started. **Dispose IS Kill.** Because every operator is a process that exits when its actor loop ends, and processes are linked, error propagation IS supervision — BEAM links handle the default case.
+
+### Two Levels of Supervision
+
+BEAM links alone handle the common case: a crash in any operator kills the pipeline. But `mergeInner` (and by extension `flatMap`, `concatMap`, `switchMap`) needs finer control over child process failures — this is where `SupervisionPolicy` comes in:
+
+```text
+Default supervision (BEAM links):
+  operator crash → linked parent dies → pipeline tears down
+  This handles: map, filter, take, merge, combineLatest, etc.
+
+Explicit supervision (SupervisionPolicy on mergeInner):
+  inner child crash → parent traps exit → applies policy
+  Terminate: convert crash to OnError, tear down (same as default)
+  Skip:      discard crashed inner, continue with remaining
+  Restart n: re-spawn crashed inner, up to n retries
+```
+
+The key insight: links provide *structural* supervision (the pipeline topology determines crash propagation). `SupervisionPolicy` provides *behavioral* supervision (what to do when a dynamically-spawned child fails). The first is implicit in every operator; the second only applies to operators that spawn dynamic children (`mergeInner`, `flatMap`).
+
+```fsharp
+// Default: crash propagates (links handle it)
+source |> map f |> filter g |> take 5
+
+// Explicit: policy overrides default for inner children
+source |> flatMap fetchUrl                       // Terminate policy (default)
+source |> mergeInner Skip None                   // skip crashed inners
+source |> mergeInner (Restart 3) (Some 5)        // retry up to 3 times, max 5 concurrent
+```
+
+This is analogous to OTP: a linked process is like a worker under a `one_for_one` supervisor with `permanent` restart. `SupervisionPolicy` adds the equivalent of `transient` (Skip) and `restart` with max retries.
 
 ```fsharp
 // Spawn returns Handle — spawning and lifetime are one atomic operation
 let handle = pipeline |> subscribe observer
 // handle.Dispose() — structured shutdown, like supervisor:terminate_child
 
-// Each operator process self-enforces the Rx grammar:
-// On terminal event, forward to downstream and exit
-| OnError e -> Process.onError downstream e; Process.exitNormal ()
-| OnCompleted -> Process.onCompleted downstream; Process.exitNormal ()
-// Process exit cascades via links — Dispose IS Kill
+// Each operator's actor loop enforces the Rx grammar:
+// Terminal events end the loop — process exits, links cascade
+let rec loop () = actor {
+    let! msg = Process.recvMsg<'T> ref
+    match msg with
+    | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
+    | OnError e -> Process.onError downstream e      // loop ends → process exits
+    | OnCompleted -> Process.onCompleted downstream   // loop ends → process exits
+}
 ```
 
 ### What the Continuation Monad Lens Reveals
@@ -262,8 +306,8 @@ In the raw actor model, spawning and supervision are separate concerns — you s
 
 - **`Spawn`** = spawn (start the computation with a callback)
 - **`Handle`** = supervision (the returned capability to manage lifetime)
-- **Process exit on terminal** = supervision policy (exit on error/complete cascades via links)
-- **`SupervisionPolicy`** = what `flatMap` does when a child process exits with an error
+- **Process exit on terminal** = structural supervision (exit on error/complete cascades via links)
+- **`SupervisionPolicy`** = behavioral supervision (what `mergeInner` does when a child process crashes)
 
 The pipeline IS the supervision tree because the continuation monad naturally nests: each operator wraps the downstream observer and spawns upstream, creating a chain of Spawn/Handle pairs — a chain of spawn/supervise pairs.
 
@@ -346,7 +390,7 @@ Identified three obstacles for actor composition:
 2. Protocol conflation — implementing multiple protocols in one actor's receive is cumbersome
 3. No first-class event handling — the receive statement can't be composed functionally
 
-Their solution: **Reactors** — actors with multiple typed channels and event streams supporting functional combinators (map, filter, union). This is almost exactly what Factor does.
+Their solution: **Reactors** — actors with multiple typed channels and event streams supporting functional combinators (map, filter, union). Factor implements essentially the same idea on the BEAM: `channel()` provides typed channels, Rx operators provide the functional combinators, and the BEAM provides the process runtime.
 
 ### Akka Streams
 
@@ -370,4 +414,4 @@ CSP constrains actors with fixed-topology channels — composable but inflexible
 | CSP | Channels | Fixed topology, synchronous rendezvous |
 | **Factor** | `channel()` + Rx operators | Push-based spawning with Rx grammar |
 
-Factor's approach is closest to Prokopec's Reactors: typed channels enable composition through functional combinators (Rx operators).
+Factor's approach is closest to Prokopec's Reactors: typed channels enable composition through functional combinators (Rx operators), with the BEAM providing lightweight processes and fault tolerance that Scala/JVM Reactors had to simulate.
