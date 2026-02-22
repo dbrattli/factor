@@ -15,8 +15,8 @@ let publish_no_emissions_before_connect_test () =
 
     let hot, connect = Reactive.publish (Reactive.ofList [ 1; 2; 3 ])
 
-    hot |> Reactive.subscribe tc1.Handler |> ignore
-    hot |> Reactive.subscribe tc2.Handler |> ignore
+    hot |> Reactive.spawn tc1.Observer |> ignore
+    hot |> Reactive.spawn tc2.Observer |> ignore
 
     // Nothing received yet - not connected
     sleep 50
@@ -25,6 +25,7 @@ let publish_no_emissions_before_connect_test () =
 
     // Now connect
     connect () |> ignore
+    sleep 50
 
     shouldEqual [ 1; 2; 3 ] tc1.Results
     shouldEqual [ 1; 2; 3 ] tc2.Results
@@ -38,8 +39,8 @@ let publish_multiple_subscribers_share_source_test () =
     let hot, connect =
         Reactive.publish (Reactive.interval 30 |> Reactive.take 3)
 
-    hot |> Reactive.subscribe tc1.Handler |> ignore
-    hot |> Reactive.subscribe tc2.Handler |> ignore
+    hot |> Reactive.spawn tc1.Observer |> ignore
+    hot |> Reactive.spawn tc2.Observer |> ignore
 
     connect () |> ignore
 
@@ -56,7 +57,7 @@ let publish_connect_returns_disposable_test () =
     let hot, connect =
         Reactive.publish (Reactive.interval 30 |> Reactive.take 10)
 
-    hot |> Reactive.subscribe tc.Handler |> ignore
+    hot |> Reactive.spawn tc.Observer |> ignore
     let connection = connect ()
 
     sleep 80
@@ -71,10 +72,11 @@ let publish_connect_idempotent_test () =
 
     let hot, connect = Reactive.publish (Reactive.ofList [ 1; 2; 3 ])
 
-    hot |> Reactive.subscribe tc.Handler |> ignore
+    hot |> Reactive.spawn tc.Observer |> ignore
 
     let _conn1 = connect ()
     let _conn2 = connect ()
+    sleep 50
 
     shouldEqual [ 1; 2; 3 ] tc.Results
     shouldBeTrue tc.Completed
@@ -88,7 +90,7 @@ let share_connects_on_first_subscriber_test () =
 
     let shared = Reactive.interval 30 |> Reactive.take 3 |> Reactive.share
 
-    shared |> Reactive.subscribe tc.Handler |> ignore
+    shared |> Reactive.spawn tc.Observer |> ignore
 
     sleep 200
 
@@ -101,8 +103,8 @@ let share_multiple_subscribers_share_source_test () =
 
     let shared = Reactive.interval 30 |> Reactive.take 3 |> Reactive.share
 
-    shared |> Reactive.subscribe tc1.Handler |> ignore
-    shared |> Reactive.subscribe tc2.Handler |> ignore
+    shared |> Reactive.spawn tc1.Observer |> ignore
+    shared |> Reactive.spawn tc2.Observer |> ignore
 
     sleep 200
 
@@ -117,8 +119,9 @@ let share_with_sync_source_test () =
 
     let shared = Reactive.ofList [ 1; 2; 3; 4; 5 ] |> Reactive.share
 
-    shared |> Reactive.subscribe tc1.Handler |> ignore
-    shared |> Reactive.subscribe tc2.Handler |> ignore
+    shared |> Reactive.spawn tc1.Observer |> ignore
+    shared |> Reactive.spawn tc2.Observer |> ignore
+    sleep 50
 
     shouldEqual [ 1; 2; 3; 4; 5 ] tc1.Results
     shouldEqual [ 1; 2; 3; 4; 5 ] tc2.Results
@@ -131,8 +134,9 @@ let share_with_map_test () =
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.map (fun x -> x * 10)
     |> Reactive.share
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
+    sleep 50
 
     shouldEqual [ 10; 20; 30 ] tc.Results
     shouldBeTrue tc.Completed
@@ -142,8 +146,9 @@ let share_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.share
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
+    sleep 50
 
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
@@ -153,8 +158,9 @@ let share_error_propagates_test () =
 
     Reactive.fail (FactorException "Test error")
     |> Reactive.share
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
+    sleep 50
 
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
@@ -167,13 +173,15 @@ let share_resubscribe_reconnects_test () =
     let shared = Reactive.ofList [ 1; 2; 3 ] |> Reactive.share
 
     // First subscription
-    let d1 = shared |> Reactive.subscribe tc1.Handler
+    let d1 = shared |> Reactive.spawn tc1.Observer
+    sleep 50
     shouldEqual [ 1; 2; 3 ] tc1.Results
     shouldBeTrue tc1.Completed
 
     d1.Dispose()
 
     // Second subscription - should reconnect
-    shared |> Reactive.subscribe tc2.Handler |> ignore
+    shared |> Reactive.spawn tc2.Observer |> ignore
+    sleep 50
     shouldEqual [ 1; 2; 3 ] tc2.Results
     shouldBeTrue tc2.Completed

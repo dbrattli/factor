@@ -1,15 +1,13 @@
 /// Time-based operators for Factor
 ///
-/// These operators work with time-based asynchronous streams.
-/// On BEAM, timing uses Erlang timer FFI.
+/// Every operator spawns a BEAM process. Timer callbacks run
+/// in the operator's process via factor_timer scheduling.
 module Factor.TimeShift
 
 open Factor.Types
 open Fable.Core
 
 // Erlang FFI for timer operations using factor_timer module.
-// Callbacks are scheduled as messages to self() and execute in the
-// subscriber's process when the timer pump (process_timers) runs.
 [<Emit("factor_timer:schedule($0, $1)")>]
 let private timerSchedule (ms: int) (callback: unit -> unit) : obj = nativeOnly
 
@@ -18,59 +16,66 @@ let private timerCancel (timer: obj) : unit = nativeOnly
 
 /// Creates a factor that emits 0 after the specified delay, then completes.
 let timer (delayMs: int) : Factor<int> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let _ =
+                        timerSchedule
+                            delayMs
+                            (fun () ->
+                                Process.onNext downstream 0
+                                Process.onCompleted downstream
+                                Process.exitNormal ())
 
-            let _ =
-                timerSchedule
-                    delayMs
-                    (fun () ->
-                        if not disposed then
-                            handler.Notify(OnNext 0)
-                            handler.Notify(OnCompleted))
+                    Process.childLoop ())
 
-            { Dispose = fun () -> disposed <- true } }
+            { Dispose = fun () -> Process.killProcess pid } }
 
 /// Creates a factor that emits incrementing integers at regular intervals.
 let interval (periodMs: int) : Factor<int> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
-            let mutable count = 0
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let mutable count = 0
 
-            // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable tick: unit -> unit = fun () -> ()
+                    // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
+                    let mutable tick: unit -> unit = fun () -> ()
 
-            tick <-
-                fun () ->
-                    let _ =
-                        timerSchedule
-                            periodMs
-                            (fun () ->
-                                if not disposed then
-                                    let c = count
-                                    count <- count + 1
-                                    handler.Notify(OnNext c)
-                                    tick ())
+                    tick <-
+                        fun () ->
+                            let _ =
+                                timerSchedule
+                                    periodMs
+                                    (fun () ->
+                                        let c = count
+                                        count <- count + 1
+                                        Process.onNext downstream c
+                                        tick ())
 
-                    ()
+                            ()
 
-            tick ()
-            { Dispose = fun () -> disposed <- true } }
+                    tick ()
+                    Process.childLoop ())
+
+            { Dispose = fun () -> Process.killProcess pid } }
 
 /// Delays each emission from the source by the specified time.
 let delay (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
-            let mutable pending = 0
-            let mutable sourceCompleted = false
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let mutable pending = 0
+                    let mutable sourceCompleted = false
+                    let ref = Process.makeRef ()
 
-            let upstream =
-                { Notify =
-                    fun n ->
-                        if not disposed then
+                    Process.registerChild
+                        ref
+                        (fun msg ->
+                            let n = unbox<Msg<'T>> msg
+
                             match n with
                             | OnNext x ->
                                 pending <- pending + 1
@@ -79,47 +84,52 @@ let delay (ms: int) (source: Factor<'T>) : Factor<'T> =
                                     timerSchedule
                                         ms
                                         (fun () ->
-                                            if not disposed then
-                                                handler.Notify(OnNext x)
-                                                pending <- pending - 1
+                                            Process.onNext downstream x
+                                            pending <- pending - 1
 
-                                                if sourceCompleted && pending = 0 then
-                                                    handler.Notify(OnCompleted))
+                                            if sourceCompleted && pending = 0 then
+                                                Process.onCompleted downstream
+                                                Process.exitNormal ())
 
                                 ()
-                            | OnError e -> handler.Notify(OnError e)
+                            | OnError e ->
+                                Process.onError downstream e
+                                Process.exitNormal ()
                             | OnCompleted ->
                                 sourceCompleted <- true
 
                                 if pending = 0 then
-                                    handler.Notify(OnCompleted) }
+                                    Process.onCompleted downstream
+                                    Process.exitNormal ())
 
-            let sourceHandle = source.Subscribe(upstream)
+                    let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                    source.Spawn(self) |> ignore
+                    Process.childLoop ())
 
-            { Dispose =
-                fun () ->
-                    disposed <- true
-                    sourceHandle.Dispose() } }
+            { Dispose = fun () -> Process.killProcess pid } }
 
 /// Emits a value only after the specified time has passed without another emission.
 let debounce (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
-            let mutable latest: 'T option = None
-            let mutable currentTimer: obj option = None
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let mutable latest: 'T option = None
+                    let mutable currentTimer: obj option = None
+                    let ref = Process.makeRef ()
 
-            let cancelTimer () =
-                match currentTimer with
-                | Some t ->
-                    timerCancel t
-                    currentTimer <- None
-                | None -> ()
+                    let cancelTimer () =
+                        match currentTimer with
+                        | Some t ->
+                            timerCancel t
+                            currentTimer <- None
+                        | None -> ()
 
-            let upstream =
-                { Notify =
-                    fun n ->
-                        if not disposed then
+                    Process.registerChild
+                        ref
+                        (fun msg ->
+                            let n = unbox<Msg<'T>> msg
+
                             match n with
                             | OnNext x ->
                                 cancelTimer ()
@@ -129,148 +139,152 @@ let debounce (ms: int) (source: Factor<'T>) : Factor<'T> =
                                     timerSchedule
                                         ms
                                         (fun () ->
-                                            if not disposed then
-                                                match latest with
-                                                | Some v ->
-                                                    handler.Notify(OnNext v)
-                                                    latest <- None
-                                                | None -> ())
+                                            match latest with
+                                            | Some v ->
+                                                Process.onNext downstream v
+                                                latest <- None
+                                            | None -> ())
 
                                 currentTimer <- Some t
                             | OnError e ->
                                 cancelTimer ()
-                                handler.Notify(OnError e)
+                                Process.onError downstream e
+                                Process.exitNormal ()
                             | OnCompleted ->
                                 cancelTimer ()
 
                                 match latest with
-                                | Some x -> handler.Notify(OnNext x)
+                                | Some x -> Process.onNext downstream x
                                 | None -> ()
 
-                                handler.Notify(OnCompleted) }
+                                Process.onCompleted downstream
+                                Process.exitNormal ())
 
-            let sourceHandle = source.Subscribe(upstream)
+                    let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                    source.Spawn(self) |> ignore
+                    Process.childLoop ())
 
-            { Dispose =
-                fun () ->
-                    disposed <- true
-                    cancelTimer ()
-                    sourceHandle.Dispose() } }
+            { Dispose = fun () -> Process.killProcess pid } }
 
 /// Rate limits emissions to at most one per specified period.
 let throttle (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
-            let mutable inWindow = false
-            let mutable latest: 'T option = None
-            let mutable currentTimer: obj option = None
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let mutable inWindow = false
+                    let mutable latest: 'T option = None
+                    let mutable currentTimer: obj option = None
+                    let ref = Process.makeRef ()
 
-            let cancelTimer () =
-                match currentTimer with
-                | Some t ->
-                    timerCancel t
-                    currentTimer <- None
-                | None -> ()
+                    let cancelTimer () =
+                        match currentTimer with
+                        | Some t ->
+                            timerCancel t
+                            currentTimer <- None
+                        | None -> ()
 
-            // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable startWindow: unit -> unit = fun () -> ()
+                    // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
+                    let mutable startWindow: unit -> unit = fun () -> ()
 
-            startWindow <-
-                fun () ->
-                    inWindow <- true
+                    startWindow <-
+                        fun () ->
+                            inWindow <- true
 
-                    let t =
-                        timerSchedule
-                            ms
-                            (fun () ->
-                                if not disposed then
-                                    match latest with
-                                    | Some x ->
-                                        handler.Notify(OnNext x)
-                                        latest <- None
-                                        startWindow ()
-                                    | None -> inWindow <- false)
+                            let t =
+                                timerSchedule
+                                    ms
+                                    (fun () ->
+                                        match latest with
+                                        | Some x ->
+                                            Process.onNext downstream x
+                                            latest <- None
+                                            startWindow ()
+                                        | None -> inWindow <- false)
 
-                    currentTimer <- Some t
+                            currentTimer <- Some t
 
-            let upstream =
-                { Notify =
-                    fun n ->
-                        if not disposed then
+                    Process.registerChild
+                        ref
+                        (fun msg ->
+                            let n = unbox<Msg<'T>> msg
+
                             match n with
                             | OnNext x ->
                                 if not inWindow then
-                                    handler.Notify(OnNext x)
+                                    Process.onNext downstream x
                                     startWindow ()
                                 else
                                     latest <- Some x
                             | OnError e ->
                                 cancelTimer ()
-                                handler.Notify(OnError e)
+                                Process.onError downstream e
+                                Process.exitNormal ()
                             | OnCompleted ->
                                 cancelTimer ()
 
                                 match latest with
-                                | Some x -> handler.Notify(OnNext x)
+                                | Some x -> Process.onNext downstream x
                                 | None -> ()
 
-                                handler.Notify(OnCompleted) }
+                                Process.onCompleted downstream
+                                Process.exitNormal ())
 
-            let sourceHandle = source.Subscribe(upstream)
+                    let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                    source.Spawn(self) |> ignore
+                    Process.childLoop ())
 
-            { Dispose =
-                fun () ->
-                    disposed <- true
-                    cancelTimer ()
-                    sourceHandle.Dispose() } }
+            { Dispose = fun () -> Process.killProcess pid } }
 
 /// Errors if no emission occurs within the specified timeout period.
 let timeout (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable disposed = false
-            let mutable currentTimer: obj option = None
+    { Spawn =
+        fun downstream ->
+            let pid =
+                Process.spawnLinked (fun () ->
+                    let mutable currentTimer: obj option = None
+                    let ref = Process.makeRef ()
 
-            let cancelTimer () =
-                match currentTimer with
-                | Some t ->
-                    timerCancel t
-                    currentTimer <- None
-                | None -> ()
+                    let cancelTimer () =
+                        match currentTimer with
+                        | Some t ->
+                            timerCancel t
+                            currentTimer <- None
+                        | None -> ()
 
-            let startTimer () =
-                let t =
-                    timerSchedule
-                        ms
-                        (fun () ->
-                            if not disposed then
-                                handler.Notify(OnError(TimeoutException(sprintf "Timeout: no emission within %dms" ms))))
+                    let startTimer () =
+                        let t =
+                            timerSchedule
+                                ms
+                                (fun () ->
+                                    Process.onError downstream (TimeoutException(sprintf "Timeout: no emission within %dms" ms))
+                                    Process.exitNormal ())
 
-                currentTimer <- Some t
+                        currentTimer <- Some t
 
-            startTimer ()
+                    startTimer ()
 
-            let upstream =
-                { Notify =
-                    fun n ->
-                        if not disposed then
+                    Process.registerChild
+                        ref
+                        (fun msg ->
+                            let n = unbox<Msg<'T>> msg
+
                             match n with
                             | OnNext x ->
                                 cancelTimer ()
-                                handler.Notify(OnNext x)
+                                Process.onNext downstream x
                                 startTimer ()
                             | OnError e ->
                                 cancelTimer ()
-                                handler.Notify(OnError e)
+                                Process.onError downstream e
+                                Process.exitNormal ()
                             | OnCompleted ->
                                 cancelTimer ()
-                                handler.Notify(OnCompleted) }
+                                Process.onCompleted downstream
+                                Process.exitNormal ())
 
-            let sourceHandle = source.Subscribe(upstream)
+                    let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                    source.Spawn(self) |> ignore
+                    Process.childLoop ())
 
-            { Dispose =
-                fun () ->
-                    disposed <- true
-                    cancelTimer ()
-                    sourceHandle.Dispose() } }
+            { Dispose = fun () -> Process.killProcess pid } }

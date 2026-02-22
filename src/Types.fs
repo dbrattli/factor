@@ -1,10 +1,11 @@
 /// Core types for Factor - Composable Actors for BEAM
 ///
 /// This module defines the fundamental types:
-/// - Notification: The atoms of the Rx grammar (OnNext, OnError, OnCompleted)
+/// - Msg: The atoms of the Rx grammar (OnNext, OnError, OnCompleted)
 /// - Handle: Resource cleanup handle
-/// - Handler: Receives notifications from a Factor
-/// - Factor: Lazy push-based stream with exception-typed errors
+/// - Observer: Process endpoint that receives messages
+/// - Sender: Push-side handle for channel actors
+/// - Factor: Lazy push-based actor with exception-typed errors
 module Factor.Types
 
 // ============================================================================
@@ -17,9 +18,9 @@ exception SequenceEmptyException
 exception ProcessExitException of string
 exception ForkJoinException of string
 
-/// Notification represents the three types of events in the Rx grammar:
+/// Msg represents the three types of events in the Rx grammar:
 /// OnNext* (OnError | OnCompleted)?
-type Notification<'T> =
+type Msg<'T> =
     | OnNext of 'T
     | OnError of exn
     | OnCompleted
@@ -37,40 +38,15 @@ let compositeHandle (handles: Handle list) : Handle =
             for h in handles do
                 h.Dispose() }
 
-/// Handler receives notifications from a Factor.
-type Handler<'T> = { Notify: Notification<'T> -> unit }
+/// Observer is a process endpoint — the (Pid, Ref) of a process
+/// that receives {factor_child, Ref, Msg} messages.
+type Observer<'T> = { Pid: obj; Ref: obj }
 
-/// Create a handler from three callback functions.
-let makeHandler (onNext: 'T -> unit) (onError: exn -> unit) (onCompleted: unit -> unit) : Handler<'T> =
-    { Notify =
-        fun n ->
-            match n with
-            | OnNext x -> onNext x
-            | OnError e -> onError e
-            | OnCompleted -> onCompleted () }
+/// Push-side handle for channel actors.
+type Sender<'T> = { ChannelPid: obj }
 
-/// Create a handler that only handles OnNext events.
-let makeNextHandler (onNext: 'T -> unit) : Handler<'T> =
-    { Notify =
-        fun n ->
-            match n with
-            | OnNext x -> onNext x
-            | _ -> () }
-
-/// Send an OnNext notification to a handler.
-let onNext (handler: Handler<'T>) (value: 'T) : unit = handler.Notify(OnNext value)
-
-/// Send an OnError notification to a handler.
-let onError (handler: Handler<'T>) (error: exn) : unit = handler.Notify(OnError error)
-
-/// Send an OnCompleted notification to a handler.
-let onCompleted (handler: Handler<'T>) : unit = handler.Notify(OnCompleted)
-
-/// Forward a notification to a handler.
-let notify (handler: Handler<'T>) (notification: Notification<'T>) : unit = handler.Notify(notification)
-
-/// Factor is a lazy push-based stream with exception-typed errors.
-type Factor<'T> = { Subscribe: Handler<'T> -> Handle }
+/// Factor is a lazy push-based actor with exception-typed errors.
+type Factor<'T> = { Spawn: Observer<'T> -> Handle }
 
 /// Supervision policy for spawned child processes.
 ///

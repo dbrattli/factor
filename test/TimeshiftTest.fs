@@ -15,7 +15,7 @@ open Factor.TestUtils
 
 let timer_emits_zero_after_delay_test () =
     let tc = TestCollector<int>()
-    let _disp = Reactive.timer 50 |> Reactive.subscribe tc.Handler
+    let _disp = Reactive.timer 50 |> Reactive.spawn tc.Observer
     sleep 200
     shouldEqual [ 0 ] tc.Results
     shouldBeTrue tc.Completed
@@ -23,13 +23,13 @@ let timer_emits_zero_after_delay_test () =
 
 let timer_completes_after_emission_test () =
     let tc = TestCollector<int>()
-    let _disp = Reactive.timer 30 |> Reactive.subscribe tc.Handler
+    let _disp = Reactive.timer 30 |> Reactive.spawn tc.Observer
     sleep 150
     shouldBeTrue tc.Completed
 
 let timer_disposal_prevents_emission_test () =
     let tc = TestCollector<int>()
-    let disp = Reactive.timer 100 |> Reactive.subscribe tc.Handler
+    let disp = Reactive.timer 100 |> Reactive.spawn tc.Observer
     sleep 20
     disp.Dispose()
     sleep 200
@@ -42,7 +42,7 @@ let timer_disposal_prevents_emission_test () =
 
 let interval_emits_incrementing_values_test () =
     let tc = TestCollector<int>()
-    let disp = Reactive.interval 30 |> Reactive.subscribe tc.Handler
+    let disp = Reactive.interval 30 |> Reactive.spawn tc.Observer
     sleep 130
     disp.Dispose()
     sleep 50
@@ -57,7 +57,7 @@ let interval_emits_incrementing_values_test () =
 
 let interval_disposal_stops_emissions_test () =
     let tc = TestCollector<int>()
-    let disp = Reactive.interval 30 |> Reactive.subscribe tc.Handler
+    let disp = Reactive.interval 30 |> Reactive.spawn tc.Observer
     sleep 80
     disp.Dispose()
     let countAtDisposal = tc.Results.Length
@@ -75,7 +75,7 @@ let delay_shifts_emissions_in_time_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.delay 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     // Immediately after subscribe, should have no values
@@ -89,7 +89,7 @@ let delay_preserves_order_test () =
 
     Reactive.ofList [ 5; 4; 3; 2; 1 ]
     |> Reactive.delay 30
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -100,7 +100,7 @@ let delay_completes_after_all_emitted_test () =
 
     Reactive.ofList [ 1; 2 ]
     |> Reactive.delay 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     // Immediately after, should not be complete
@@ -117,7 +117,7 @@ let debounce_waits_for_silence_test () =
 
     Reactive.ofList [ 1 ]
     |> Reactive.debounce 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -129,7 +129,7 @@ let debounce_emits_latest_value_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.debounce 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -145,7 +145,7 @@ let throttle_emits_first_immediately_test () =
 
     Reactive.ofList [ 1; 2; 3; 4; 5 ]
     |> Reactive.throttle 100
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 50
@@ -159,7 +159,7 @@ let throttle_completes_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.throttle 30
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -171,7 +171,7 @@ let throttle_completes_test () =
 
 let timer_via_facade_test () =
     let tc = TestCollector<int>()
-    Reactive.timer 50 |> Reactive.subscribe tc.Handler |> ignore
+    Reactive.timer 50 |> Reactive.spawn tc.Observer |> ignore
     sleep 150
     shouldEqual [ 0 ] tc.Results
     shouldBeTrue tc.Completed
@@ -181,7 +181,7 @@ let debounce_via_facade_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.debounce 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -192,7 +192,7 @@ let throttle_via_facade_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.throttle 50
-    |> Reactive.subscribe tc.Handler
+    |> Reactive.spawn tc.Observer
     |> ignore
 
     sleep 150
@@ -207,14 +207,14 @@ let throttle_via_facade_test () =
 
 let debounce_dispose_cancels_timer_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.stream ()
+    let input, output = Reactive.channel ()
 
     let disp =
         output
         |> Reactive.debounce 100
-        |> Reactive.subscribe tc.Handler
+        |> Reactive.spawn tc.Observer
 
-    Reactive.onNext input 42
+    Reactive.pushNext input 42
     sleep 30
     disp.Dispose()
     sleep 150
@@ -222,21 +222,24 @@ let debounce_dispose_cancels_timer_test () =
 
 let throttle_dispose_cancels_timer_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.stream ()
+    let input, output = Reactive.channel ()
 
     let disp =
         output
         |> Reactive.throttle 100
-        |> Reactive.subscribe tc.Handler
+        |> Reactive.spawn tc.Observer
+
+    // Allow throttle process to subscribe to channel
+    sleep 50
 
     // First value emitted immediately, starts window
-    Reactive.onNext input 1
-    sleep 10
+    Reactive.pushNext input 1
+    sleep 50
     shouldEqual [ 1 ] tc.Results
 
     // Send second value during window
-    Reactive.onNext input 2
-    sleep 30
+    Reactive.pushNext input 2
+    sleep 50
     disp.Dispose()
     sleep 150
     // Should not have received the "latest" value from window end
@@ -244,16 +247,16 @@ let throttle_dispose_cancels_timer_test () =
 
 let delay_dispose_cancels_pending_timers_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.stream ()
+    let input, output = Reactive.channel ()
 
     let disp =
         output
         |> Reactive.delay 100
-        |> Reactive.subscribe tc.Handler
+        |> Reactive.spawn tc.Observer
 
-    Reactive.onNext input 1
-    Reactive.onNext input 2
-    Reactive.onNext input 3
+    Reactive.pushNext input 1
+    Reactive.pushNext input 2
+    Reactive.pushNext input 3
     sleep 30
     disp.Dispose()
     sleep 150

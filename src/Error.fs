@@ -1,110 +1,73 @@
 /// Error handling operators for Factor
 ///
-/// These operators handle errors in Factor sequences.
+/// Every operator spawns a BEAM process. The pipeline IS the supervision tree.
 module Factor.Error
 
 open Factor.Types
+open Factor.Actor
 
 /// Resubscribes to the source factor when an error occurs,
 /// up to the specified number of retries.
 let retry (maxRetries: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable retryCount = 0
-            let mutable currentHandle: Handle option = None
-            let mutable disposed = false
+    { Spawn =
+        fun downstream ->
+            Process.spawnOp (fun () ->
+                let rec subscribeToSource (retriesLeft: int) =
+                    let ref = Process.makeRef ()
+                    let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                    source.Spawn(upstream) |> ignore
 
-            // Use mutable function ref to avoid let rec inside closure (Fable.Beam limitation)
-            let mutable subscribeToSource: unit -> unit = fun () -> ()
+                    let rec loop () = actor {
+                        let! msg = Process.recvMsg<'T> ref
 
-            subscribeToSource <-
-                fun () ->
-                    let sourceHandler =
-                        { Notify =
-                            fun n ->
-                                if not disposed then
-                                    match n with
-                                    | OnNext x -> handler.Notify(OnNext x)
-                                    | OnError e ->
-                                        if retryCount < maxRetries then
-                                            retryCount <- retryCount + 1
+                        match msg with
+                        | OnNext x ->
+                            Process.onNext downstream x
+                            return! loop ()
+                        | OnError e ->
+                            if retriesLeft > 0 then
+                                return! subscribeToSource (retriesLeft - 1)
+                            else
+                                Process.onError downstream e
+                        | OnCompleted -> Process.onCompleted downstream
+                    }
+                    loop ()
 
-                                            match currentHandle with
-                                            | Some h -> h.Dispose()
-                                            | None -> ()
+                subscribeToSource maxRetries) }
 
-                                            subscribeToSource ()
-                                        else
-                                            match currentHandle with
-                                            | Some h -> h.Dispose()
-                                            | None -> ()
-
-                                            handler.Notify(OnError e)
-                                    | OnCompleted ->
-                                        match currentHandle with
-                                        | Some h -> h.Dispose()
-                                        | None -> ()
-
-                                        handler.Notify(OnCompleted) }
-
-                    let h = source.Subscribe(sourceHandler)
-                    currentHandle <- Some h
-
-            subscribeToSource ()
-
-            { Dispose =
-                fun () ->
-                    disposed <- true
-
-                    match currentHandle with
-                    | Some h -> h.Dispose()
-                    | None -> () } }
-
-/// On error, switches to a fallback factor returned by the handler.
+/// On error, switches to a fallback factor returned by the error handler.
 let catch (errorHandler: exn -> Factor<'T>) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe =
-        fun handler ->
-            let mutable currentHandle: Handle option = None
-            let mutable disposed = false
+    { Spawn =
+        fun downstream ->
+            Process.spawnOp (fun () ->
+                let ref = Process.makeRef ()
+                let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+                source.Spawn(upstream) |> ignore
 
-            let sourceHandler =
-                { Notify =
-                    fun n ->
-                        if not disposed then
-                            match n with
-                            | OnNext x -> handler.Notify(OnNext x)
-                            | OnError e ->
-                                match currentHandle with
-                                | Some h -> h.Dispose()
-                                | None -> ()
+                let rec loop () = actor {
+                    let! msg = Process.recvMsg<'T> ref
 
-                                let fallback = errorHandler e
+                    match msg with
+                    | OnNext x ->
+                        Process.onNext downstream x
+                        return! loop ()
+                    | OnError e ->
+                        let fallback = errorHandler e
+                        let fallbackRef = Process.makeRef ()
+                        let fallbackUpstream: Observer<'T> = { Pid = Process.selfPid (); Ref = fallbackRef }
+                        fallback.Spawn(fallbackUpstream) |> ignore
 
-                                let fallbackHandler =
-                                    { Notify =
-                                        fun fn ->
-                                            if not disposed then
-                                                match fn with
-                                                | OnNext x -> handler.Notify(OnNext x)
-                                                | OnError fe -> handler.Notify(OnError fe)
-                                                | OnCompleted -> handler.Notify(OnCompleted) }
+                        let rec innerLoop () = actor {
+                            let! innerMsg = Process.recvMsg<'T> fallbackRef
 
-                                let fallbackHandle = fallback.Subscribe(fallbackHandler)
-                                currentHandle <- Some fallbackHandle
-                            | OnCompleted ->
-                                match currentHandle with
-                                | Some h -> h.Dispose()
-                                | None -> ()
-
-                                handler.Notify(OnCompleted) }
-
-            let h = source.Subscribe(sourceHandler)
-            currentHandle <- Some h
-
-            { Dispose =
-                fun () ->
-                    disposed <- true
-
-                    match currentHandle with
-                    | Some h -> h.Dispose()
-                    | None -> () } }
+                            match innerMsg with
+                            | OnNext x ->
+                                Process.onNext downstream x
+                                return! innerLoop ()
+                            | OnError fe -> Process.onError downstream fe
+                            | OnCompleted -> Process.onCompleted downstream
+                        }
+                        return! innerLoop ()
+                    | OnCompleted -> Process.onCompleted downstream
+                }
+                loop ()) }

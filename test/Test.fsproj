@@ -9,10 +9,10 @@
     <Compile Include="FilterTest.fs" />
     <Compile Include="CombineTest.fs" />
     <Compile Include="TimeshiftTest.fs" />
-    <Compile Include="StreamTest.fs" />
+    <Compile Include="ChannelTest.fs" />
     <Compile Include="ErrorTest.fs" />
-    <Compile Include="BuilderTest.fs" />
-    <Compile Include="NewOperatorsTest.fs" />
+    <Compile Include="FlowTest.fs" />
+    <Compile Include="ActorTest.fs" />
     <Compile Include="MergeInnerTest.fs" />
     <Compile Include="AmbForkjoinTest.fs" />
     <Compile Include="ShareTest.fs" />

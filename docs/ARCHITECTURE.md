@@ -4,44 +4,57 @@ Factor is a composable actor framework for the Erlang/BEAM runtime, written in F
 
 ## Overview
 
-Factor implements the Reactive Extensions pattern: composable, push-based streams of asynchronous events. It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx), leveraging the BEAM runtime for concurrency and fault tolerance.
+Factor implements the Reactive Extensions pattern: composable, push-based actors for asynchronous events. It is a port of [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx), leveraging the BEAM runtime for concurrency and fault tolerance.
+
+Every operator in a Factor pipeline spawns a BEAM process. The pipeline IS the supervision tree.
 
 ```text
-Factor (source) → Operator (transform) → Handler (sink)
-                        ↓
-                 State Management
-         (mutable variables / stream actors)
+Factor (source) → Operator (process) → Operator (process) → Observer (endpoint)
+                       ↓                     ↓
+                 Linked child            Linked child
+              (mutable state in        (mutable state in
+               own process dict)        own process dict)
 ```
 
 ## Core Types
 
 All core types are defined in `src/Types.fs` (`Factor.Types` module):
 
-### Notification
+### Msg
 
-The atoms of the Rx grammar. Every event in a stream is one of:
+The atoms of the Rx grammar. Every event in a Factor is one of:
 
 ```fsharp
-type Notification<'T> =
+type Msg<'T> =
     | OnNext of 'T       // A value
     | OnError of exn     // An error (terminal)
-    | OnCompleted        // Stream end (terminal)
+    | OnCompleted        // End (terminal)
 ```
 
-### Handler
+### Observer
 
-A consumer of notifications. Contains a single Notify function:
+A process endpoint that receives messages. Contains the `Pid` and `Ref` of a BEAM process registered to handle `{factor_child, Ref, Msg}` messages:
 
 ```fsharp
-type Handler<'T> = { Notify: Notification<'T> -> unit }
+type Observer<'T> = { Pid: obj; Ref: obj }
+```
+
+Messages are delivered to an observer via Erlang message passing: `Pid ! {factor_child, Ref, boxed_msg}`. The receiving process dispatches messages by looking up the `Ref` in its process dictionary registry.
+
+### Sender
+
+The push-side handle for a channel actor. Used to send messages into a channel:
+
+```fsharp
+type Sender<'T> = { ChannelPid: obj }
 ```
 
 ### Factor
 
-A lazy, push-based stream. Contains a Subscribe function that connects a handler and returns a disposal handle:
+A lazy, push-based actor. Contains a Spawn function that connects an observer and returns a disposal handle:
 
 ```fsharp
-type Factor<'T> = { Subscribe: Handler<'T> -> Handle }
+type Factor<'T> = { Spawn: Observer<'T> -> Handle }
 ```
 
 ### Handle
@@ -52,6 +65,17 @@ A handle for resource cleanup and unsubscription:
 type Handle = { Dispose: unit -> unit }
 ```
 
+### SupervisionPolicy
+
+Controls what happens when a spawned child process crashes:
+
+```fsharp
+type SupervisionPolicy =
+    | Terminate          // Propagate as OnError, kill pipeline (default)
+    | Skip               // Ignore the crash, continue with other inners
+    | Restart of int     // Resubscribe the failed inner, up to N times
+```
+
 ## The Rx Contract
 
 Factor enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
@@ -60,176 +84,223 @@ Factor enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 - At most one terminal event (`OnError` or `OnCompleted`)
 - No events after a terminal event
 
-The `SafeHandler.wrap` function enforces this contract by:
+Enforcement is structural: each operator process calls `Process.exitNormal()` after forwarding a terminal event (OnError or OnCompleted) to the downstream observer. Since the process exits, no further messages can be processed. The linked process tree ensures cleanup propagates automatically through BEAM's EXIT signal mechanism.
 
-1. Tracking a mutable `stopped` flag
-2. Ignoring events after terminal
-3. Calling disposal on terminal events
+```fsharp
+// Terminal event handling pattern in every operator:
+| OnError e ->
+    Process.onError downstream e
+    Process.exitNormal ()       // Process dies — no more messages handled
+| OnCompleted ->
+    Process.onCompleted downstream
+    Process.exitNormal ()       // Process dies — no more messages handled
+```
 
 ## Data Flow
 
-### Subscription Flow
+### Spawn Flow
+
+When a pipeline is spawned, each operator spawns a linked BEAM process that subscribes to its source. The chain of `spawnLinked` calls creates a linked process tree:
 
 ```text
-1. Handler created by consumer
-2. Consumer calls factor.Subscribe(handler)
-3. Factor sets up upstream subscription
-4. Returns Handle to consumer
+1. Consumer creates an observer endpoint (Pid + Ref)
+2. Consumer calls factor.Spawn(observer)
+3. Factor spawns a linked process
+4. Spawned process creates its own observer endpoint
+5. Spawned process subscribes to its source
+6. Returns Handle (kill pid) to consumer
 
-     Consumer                    Factor                       Source
-        │                          │                            │
-        │──Subscribe(handler)─────►│                            │
-        │                          │──Subscribe(upstream)──────►│
-        │◄──────Handle─────────────│◄──────────Handle───────────│
+     Consumer              Operator Process            Source
+        │                        │                       │
+        │──Spawn(observer)──►    │                       │
+        │                   spawnLinked()                 │
+        │                        │──Spawn(self)─────────►│
+        │◄──Handle(kill pid)─────│                       │
 ```
 
 ### Event Flow
 
-```text
-Source emits OnNext(value)
-    ↓
-Operator transforms/filters
-    ↓
-Handler receives notification
-    ↓
-On terminal: Handle.Dispose() called
+Events flow as Erlang messages between operator processes:
 
-     Source                     Operator                    Handler
-        │                           │                          │
-        │───OnNext(x)──────────────►│                          │
-        │                           │───OnNext(f(x))──────────►│
-        │───OnCompleted────────────►│                          │
-        │                           │───OnCompleted───────────►│
-        │                           │                          │
-                                                    Dispose() called
+```text
+Source sends {factor_child, Ref, OnNext(x)} to Operator Pid
+    ↓
+Operator process receives message, dispatches via Ref lookup
+    ↓
+Handler transforms value, sends {factor_child, Ref, OnNext(f(x))} to downstream Pid
+    ↓
+On terminal: handler sends terminal to downstream, then exits (Process.exitNormal)
+    ↓
+EXIT signal propagates through linked process tree
+
+     Source Process          Operator Process          Consumer Process
+          │                       │                         │
+          │──{factor_child}──────►│                         │
+          │                       │──{factor_child}────────►│
+          │──{factor_child}──────►│  (OnCompleted)          │
+          │                       │──{factor_child}────────►│
+          │                       │  exitNormal()           │
+          │                       X                         │
 ```
+
+### Pipeline as Process Tree
+
+A composed pipeline creates a tree of linked BEAM processes:
+
+```text
+Consumer Process
+  └── map process (linked)
+        └── filter process (linked)
+              └── source process (linked)
+```
+
+If any operator process crashes, the EXIT signal propagates up through the linked chain. The consumer's exit handler converts this to an `OnError` or handles it according to the supervision policy.
 
 ## Module Organization
 
 ```text
 src/
-├── Types.fs          # Core types: Factor, Handler, Notification, Handle
-├── SafeHandler.fs    # Rx grammar enforcement
+├── Types.fs          # Core types: Factor, Observer, Sender, Msg, Handle
+├── Erlang.fs         # Erlang FFI primitives (receive, monotonicTime)
+├── Process.fs        # BEAM process management, message loops, observer/sender helpers
 ├── Create.fs         # Creation: single, empty, never, fail, ofList, defer
-├── Process.fs        # BEAM process management FFI, stream actor FFI
-├── Transform.fs      # Transform: map, flatMap, flatMapSpawned, mergeInner,
-│                     #   mergeInnerSpawned, concatMap, switchMap, scan, reduce, groupBy
+├── Transform.fs      # Transform: map, flatMap, mergeInner, concatMap, switchMap,
+│                     #   scan, reduce, groupBy
 ├── Filter.fs         # Filter: filter, take, skip, distinct, sample
 ├── Combine.fs        # Combine: merge, zip, combineLatest, concat, amb, forkJoin
 ├── TimeShift.fs      # Time: timer, interval, delay, debounce, throttle, timeout
-├── Stream.fs         # Streams: stream, singleStream, publish, share
+├── Channel.fs        # Channels: channel, singleChannel, publish, share
 ├── Error.fs          # Error handling: retry, catch
 ├── Interop.fs        # Interop helpers: tapSend
 ├── Actor.fs          # CPS-based actor computation expression
-├── Builder.fs        # Computation expression builder (factor { ... })
+├── Flow.fs           # Computation expression builder (flow { ... })
 └── Factor.fs         # API facade (Factor.Reactive module), re-exports all operators
 
 erl/
 ├── factor_actor.erl  # Process spawning, child_loop, exit/child registries
 ├── factor_timer.erl  # Timer scheduling via erlang:send_after
-└── factor_stream.erl # Stream actor processes (multicast + single-subscriber)
+└── factor_stream.erl # Channel actor processes (multicast + single-subscriber)
+```
+
+## Process-Per-Operator Model
+
+Every operator in Factor spawns a dedicated BEAM process via `Process.spawnLinked`. This is the single composition model — there is no distinction between "inline" and "spawned" variants.
+
+### How It Works
+
+1. When `factor.Spawn(downstream)` is called, the operator spawns a linked child process
+2. The child process creates a `Ref` and registers a message handler in its process dictionary
+3. The child constructs an `Observer<'T>` endpoint (`{ Pid = self(); Ref = ref }`) and subscribes to its source
+4. The child enters `Process.childLoop()`, blocking on `receive` to dispatch incoming messages
+5. On terminal events, the child forwards the event downstream and calls `Process.exitNormal()`
+
+### Benefits
+
+- **Process isolation**: Each operator's mutable state (counters, accumulators, buffers) lives in its own process dictionary, completely isolated from other operators
+- **Natural supervision**: Linked processes form a supervision tree automatically. The pipeline structure IS the fault-tolerance structure
+- **BEAM-native**: Leverages lightweight BEAM processes (microsecond spawn, ~300 bytes each) and OTP conventions
+- **Simplified model**: One composition mode, one mental model. No need to choose between inline and spawned variants
+
+### Notification Path
+
+Messages flow between operator processes as Erlang tuples:
+
+```text
+Source Process ──{factor_child, Ref, Msg}──► Operator Process ──{factor_child, Ref, Msg}──► Consumer
+```
+
+When operators subscribe to channel actors, messages take a two-hop path:
+
+```text
+Channel Actor ──{factor_child, Ref, Msg}──► Operator Process ──{factor_child, Ref, Msg}──► Consumer
 ```
 
 ## State Management
 
-Factor uses two complementary approaches to state management:
+### Operator State (Process-Local)
 
-### Mutable Variables (Inline)
-
-Most operators use mutable variables for state. On BEAM (via Fable.Beam), mutable variables are backed by the Erlang process dictionary. All stateful operators run synchronously in the subscriber's process context.
-
-### Stream Actors (Cross-Process)
-
-Streams (`stream()`, `singleStream()`) and `groupBy` sub-groups are backed by dedicated BEAM actor processes that manage state via message passing. This solves the cross-process problem: when a child process needs to subscribe to a stream, the actor handles subscriber registration without accessing another process's dictionary.
-
-## Two Composition Modes
-
-### Pipe Operators (Inline)
-
-`flatMap`, `mergeInner`, and other pipe operators subscribe inline in the subscriber's process. Mutable state (process dictionary, `Dictionary`, `HashSet`) is safe to use.
+Each operator's mutable state lives in its own spawned process. On BEAM (via Fable.Beam), mutable variables compile to process dictionary operations, which are inherently process-local. Since every operator is its own process, there are no shared-state concerns between operators.
 
 ```fsharp
-source
-|> Reactive.groupBy key         // groupBy creates stream actor per group
-|> Reactive.flatMap (fun (k, group) ->
-    group |> Reactive.map transform)  // inline subscribe, same process
+// scan operator — accumulator lives in the scan process's dictionary
+let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
+    { Spawn = fun downstream ->
+        let pid = Process.spawnLinked (fun () ->
+            let mutable acc = initial          // Process-local mutable state
+            let ref = Process.makeRef ()
+            Process.registerChild ref (fun msg ->
+                let n = unbox<Msg<'T>> msg
+                match n with
+                | OnNext x ->
+                    acc <- accumulator acc x    // Safe: only this process touches acc
+                    Process.onNext downstream acc
+                | OnError e -> Process.onError downstream e; Process.exitNormal ()
+                | OnCompleted -> Process.onCompleted downstream; Process.exitNormal ())
+            let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+            source.Spawn(self) |> ignore
+            Process.childLoop ())
+        { Dispose = fun () -> Process.killProcess pid } }
 ```
 
-### Computation Expression (Process-Spawning)
+### Channel Actors (Cross-Process Multicast)
 
-`factor { let! ... }` desugars to `flatMapSpawned`, which spawns a linked child process for each inner subscription. This creates supervision boundaries — child crashes are caught and converted to `OnError`.
-
-```fsharp
-factor {
-    let! x = source     // spawns child process
-    let! y = other       // spawns child process
-    return x + y
-}
-```
-
-**Constraint:** The CE body runs in spawned child processes, so it must NOT reference parent process dictionary state (mutable variables, `Dictionary`). Only capture immutable values and actor-based streams.
-
-### Notification Path
-
-When CE children subscribe to stream actors, notifications follow a two-hop path:
-
-```text
-Stream Actor ──{factor_child}──► Child Process ──{factor_child}──► Parent Process
-                                  (childLoop)                       (process_timers)
-```
+Channels (`channel()`, `singleChannel()`) and `groupBy` sub-groups are backed by dedicated BEAM actor processes (`factor_stream.erl`) that manage subscriber registries via message passing. Channel actors enable multicast: multiple operator processes can subscribe to the same channel.
 
 ## Operator Patterns
 
-### Stateless Operators
+### Standard Operator Pattern
 
-Simple transformations create a new handler inline:
+Most operators follow the same structural pattern — spawn a linked process, register a handler, subscribe to source, enter the child loop:
 
 ```fsharp
 let map (mapper: 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
-    { Subscribe = fun handler ->
-        let upstream =
-            { Notify = fun n ->
+    { Spawn = fun downstream ->
+        let pid = Process.spawnLinked (fun () ->
+            let ref = Process.makeRef ()
+            Process.registerChild ref (fun msg ->
+                let n = unbox<Msg<'T>> msg
                 match n with
-                | OnNext x -> handler.Notify(OnNext(mapper x))
-                | OnError e -> handler.Notify(OnError e)
-                | OnCompleted -> handler.Notify(OnCompleted) }
-        source.Subscribe(upstream) }
+                | OnNext x -> Process.onNext downstream (mapper x)
+                | OnError e -> Process.onError downstream e; Process.exitNormal ()
+                | OnCompleted -> Process.onCompleted downstream; Process.exitNormal ())
+            let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+            source.Spawn(self) |> ignore
+            Process.childLoop ())
+        { Dispose = fun () -> Process.killProcess pid } }
 ```
 
-### Stateful Operators
+Key elements:
+1. **`Process.spawnLinked`** — creates a linked child process
+2. **`Process.makeRef`** — unique reference for message dispatch
+3. **`Process.registerChild ref handler`** — registers handler in process dictionary
+4. **`Observer<'T> = { Pid = self(); Ref = ref }`** — creates the endpoint for the source to send to
+5. **`source.Spawn(self)`** — subscribes to the upstream source
+6. **`Process.childLoop()`** — enters the receive loop (blocks until messages arrive)
+7. **`Process.exitNormal()`** — terminates the process on terminal events
 
-Operators needing state use mutable variables (created at subscribe time in the subscriber's process):
+### Creation Operators (No Process Spawn)
+
+Creation operators (`single`, `empty`, `fail`, `ofList`) do NOT spawn processes. They send messages directly to the downstream observer's mailbox. BEAM mailbox buffering handles the synchronous-to-asynchronous transition:
 
 ```fsharp
-let take (count: int) (source: Factor<'T>) : Factor<'T> =
-    { Subscribe = fun handler ->
-        let mutable remaining = count
-        let upstream =
-            { Notify = fun n ->
-                if remaining > 0 then
-                    match n with
-                    | OnNext x ->
-                        remaining <- remaining - 1
-                        handler.Notify(OnNext x)
-                        if remaining = 0 then
-                            handler.Notify(OnCompleted)
-                    | OnError e -> handler.Notify(OnError e)
-                    | OnCompleted -> handler.Notify(OnCompleted) }
-        source.Subscribe(upstream) }
+let ofList (items: 'T list) : Factor<'T> =
+    { Spawn = fun observer ->
+        for x in items do
+            Process.onNext observer x
+        Process.onCompleted observer
+        emptyHandle () }
 ```
+
+These are safe because `Process.onNext` is just an Erlang send (`Pid ! {factor_child, Ref, Msg}`), which is non-blocking and buffers in the receiver's mailbox.
 
 ### Composed Operators
 
 Higher-level operators are composed from primitives:
 
 ```fsharp
-// flatMap = map + mergeInner (inline, unlimited concurrency)
+// flatMap = map + mergeInner (each inner in its own linked child process)
 let flatMap mapper source =
-    source |> map mapper |> mergeInner None
-
-// flatMapSpawned = map + mergeInnerSpawned (child processes)
-let flatMapSpawned mapper source =
-    source |> map mapper |> mergeInnerSpawned
+    source |> map mapper |> mergeInner Terminate None
 
 // concatMap = map + concatInner (sequential)
 let concatMap mapper source =
@@ -237,36 +308,51 @@ let concatMap mapper source =
 
 // concatInner = mergeInner with maxConcurrency=1
 let concatInner source =
-    mergeInner (Some 1) source
+    mergeInner Terminate (Some 1) source
+
+// switchMap = map + switchInner (latest only)
+let switchMap mapper source =
+    source |> map mapper |> switchInner
 ```
 
 `mergeInner` accepts a `maxConcurrency` parameter:
 
-- `None` — unlimited concurrency (subscribe to all immediately)
+- `None` — unlimited concurrency (spawn all immediately)
 - `Some 1` — sequential processing (equivalent to `concatInner`)
 - `Some n` — at most n inner factors active, queue the rest
 
+`mergeInner` also accepts a `SupervisionPolicy` controlling how child process crashes are handled (terminate, skip, or restart).
+
 ### Actor-Based Operators
 
-`groupBy` creates a `singleStream` actor per group key, routing values via message passing:
+`groupBy` creates a `singleChannel` actor per group key, routing values via message passing:
 
 ```fsharp
-// Each group is a singleStream actor — buffers before subscribe,
+// Each group is a singleChannel actor — buffers before subscribe,
 // handles subscriber management via messages, works cross-process
 let groupBy keySelector source =
-    // Dictionary maps keys to (streamPid, notify) pairs
-    // Stream actors handle buffering and subscriber management
+    // Dictionary maps keys to (channelPid, send) pairs
+    // Channel actors handle buffering and subscriber management
     ...
 ```
 
-## Stream Actors
+## Channel Actors
 
-Each stream is backed by a BEAM actor process (`factor_stream.erl`):
+Each channel is backed by a BEAM actor process (`factor_stream.erl`):
 
-- **`stream()`** — multicast, `#{Ref => Pid}` subscriber map
-- **`singleStream()`** — single subscriber with buffering
+- **`channel()`** — multicast, `#{Ref => Pid}` subscriber map. Returns `Sender<'T> * Factor<'T>`
+- **`singleChannel()`** — single subscriber with buffering. Returns `Sender<'T> * Factor<'T>`
 
-Subscribe is **synchronous** (send + wait for ack) to prevent races between subscribe and first notify. Stream actors are linked to their creator via `spawn_link`.
+The `Sender<'T>` handle provides functions to push messages into the channel:
+
+```fsharp
+let (sender, factor) = Reactive.channel ()
+// Push values via Sender
+Reactive.pushNext sender 42
+Reactive.pushCompleted sender
+```
+
+Spawn is **synchronous** (send + wait for ack) to prevent races between subscribing and the first send. Channel actors are linked to their creator via `spawn_link`.
 
 ## Cold vs Hot Factors
 
@@ -274,35 +360,36 @@ Subscribe is **synchronous** (send + wait for ack) to prevent races between subs
 
 Most operators produce **cold** factors:
 
-- Each subscription triggers a new execution
+- Each spawn triggers a new execution
 - No sharing of side effects between subscribers
 - Created by `ofList`, `single`, `timer`, etc.
 
-### Hot Factors / Streams
+### Hot Factors / Channels
 
-**Streams** are both Handler and Factor:
+**Channels** separate the push side (`Sender<'T>`) from the subscribe side (`Factor<'T>`):
 
-- `stream()` — Multicast stream actor, multiple subscribers (no buffering)
-- `singleStream()` — Single subscriber stream actor with buffering
+- `channel()` — Multicast channel actor, multiple subscribers (no buffering). Returns `Sender<'T> * Factor<'T>`
+- `singleChannel()` — Single subscriber channel actor with buffering. Returns `Sender<'T> * Factor<'T>`
 - `publish()` — Convert cold to hot (manual connect)
 - `share()` — Auto-connecting multicast with refcount
 
 ```fsharp
-// Cold: each subscriber gets independent stream
+// Cold: each subscriber gets independent execution
 let cold = Reactive.interval 100
 
-// Hot: subscribers share same stream
+// Hot: subscribers share same execution
 let hot = cold |> Reactive.share
 ```
 
 ## Message Dispatch
 
-Processes that subscribe to streams or use time-based operators must handle two message types:
+Processes that subscribe to channels or use time-based operators must handle these message types in their receive loop:
 
 - `{factor_timer, Ref, Callback}` — Timer callbacks from `erlang:send_after`
-- `{factor_child, Ref, Notification}` — Notifications from stream actors or child processes
+- `{factor_child, Ref, Msg}` — Messages from channel actors, source operators, or child processes
+- `{'EXIT', Pid, Reason}` — Linked process exits (when trap_exit is enabled)
 
-The `process_timers` loop (for subscribers) and `child_loop` (for spawned children) both handle these messages. Custom receive loops (e.g., cowboy WebSocket handlers) must also handle `{factor_child, ...}` to receive stream notifications.
+The `childLoop` function handles all three message types by dispatching through process dictionary registries (`factor_children` for child messages, `factor_exits` for EXIT signals). Custom receive loops (e.g., cowboy WebSocket handlers) must also handle `{factor_child, ...}` to receive channel messages.
 
 ## Time-Based Operators
 
@@ -319,15 +406,15 @@ Time operators use a native Erlang module (`factor_timer`) that schedules callba
 
 Factor provides two computation expressions:
 
-### `factor { ... }` — Stream composition
+### `flow { ... }` — Factor composition
 
-Each `let!` spawns a child process (supervision boundary):
+Each `let!` desugars to `flatMap`, which spawns child processes creating supervision boundaries:
 
 ```fsharp
-open Factor.Builder
+open Factor.Flow
 
 let example =
-    factor {
+    flow {
         let! x = Reactive.single 10
         let! y = Reactive.single 20
         let! z = Reactive.ofList [ 1; 2; 3 ]
@@ -335,6 +422,8 @@ let example =
     }
 // Emits: 31, 32, 33 then completes
 ```
+
+Since every operator already spawns a process, `let!` using `flatMap` is consistent with the rest of the framework. Each binding creates a linked child process for the inner factor, forming a supervision sub-tree.
 
 ### `actor { ... }` — CPS-based actors
 
@@ -352,17 +441,17 @@ let pid = spawn (fun ctx ->
 
 ## Error Handling
 
-- `retry(n)` — Resubscribe on error, up to n times
+- `retry(n)` — Re-spawn on error, up to n times
 - `catch(handler)` — On error, switch to fallback factor
 
-Process crashes in spawned children are caught by exit monitors and converted to `OnError(ProcessExitException ...)` with a formatted reason.
+Process crashes in child processes are caught by exit monitors (when `trapExits` is enabled) and converted to `OnError(ProcessExitException ...)` with a formatted reason. The `SupervisionPolicy` on `mergeInner` controls whether crashes terminate the pipeline, are skipped, or trigger a restart.
 
 ## Design Principles
 
-1. **Laziness**: Factors don't execute until subscribed
+1. **Laziness**: Factors don't execute until spawned
 2. **Composability**: Small operators compose into complex pipelines
-3. **Resource Safety**: Handles ensure cleanup on completion/error/unsubscribe
-4. **Rx Contract**: Grammar enforcement prevents illegal states
+3. **Process Isolation**: Every operator is a BEAM process. Mutable state is always process-local and never shared. The pipeline structure IS the supervision hierarchy
+4. **Rx Contract**: Operator processes self-enforce the grammar by exiting on terminal events
 5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for lightweight processes and fault tolerance
-6. **Dual Composition**: Inline pipes for performance, CE spawning for supervision
-7. **Actor Encapsulation**: Streams and groups use actor processes to encapsulate mutable state across process boundaries
+6. **Resource Safety**: Handles kill operator processes; EXIT signals propagate through the linked tree for automatic cleanup
+7. **Actor Encapsulation**: Channels and groups use actor processes to enable cross-process multicast and subscriber management

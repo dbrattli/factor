@@ -5,6 +5,7 @@
 module Factor.Process
 
 open Fable.Core
+open Factor.Actor
 
 // ============================================================================
 // Erlang FFI for process management
@@ -131,29 +132,96 @@ let processTimers (timeoutMs: int) : unit =
     processTimersLoop endTime
 
 // ============================================================================
-// Stream actor FFI
+// Channel actor FFI
 // ============================================================================
 
-/// Start a multicast stream actor process. Returns the pid.
+/// Start a multicast channel actor process. Returns the pid.
 [<Emit("factor_stream:start_stream()")>]
 let startStream () : obj = nativeOnly
 
-/// Start a single-subscriber stream actor process. Returns the pid.
+/// Start a single-subscriber channel actor process. Returns the pid.
 [<Emit("factor_stream:start_single_stream()")>]
 let startSingleStream () : obj = nativeOnly
 
-/// Send a non-terminal notification to a stream actor.
+/// Send a non-terminal notification to a channel actor.
 [<Emit("$0 ! {stream_notify, $1}")>]
 let streamNotify (pid: obj) (notification: obj) : unit = nativeOnly
 
-/// Send a terminal notification to a stream actor (causes it to broadcast and exit).
+/// Send a terminal notification to a channel actor (causes it to broadcast and exit).
 [<Emit("$0 ! {stream_notify_terminal, $1}")>]
 let streamNotifyTerminal (pid: obj) (notification: obj) : unit = nativeOnly
 
-/// Synchronously subscribe to a stream actor. Blocks until ack received.
+/// Synchronously subscribe to a channel actor. Blocks until ack received.
 [<Emit("factor_stream:subscribe($0, $1)")>]
 let streamSubscribe (pid: obj) (ref: obj) : unit = nativeOnly
 
-/// Unsubscribe from a stream actor.
+/// Unsubscribe from a channel actor.
 [<Emit("$0 ! {stream_unsubscribe, $1}")>]
 let streamUnsubscribe (pid: obj) (ref: obj) : unit = nativeOnly
+
+// ============================================================================
+// Observer helpers (message-passing to process endpoints)
+// ============================================================================
+
+open Factor.Types
+
+/// Send a notification to an observer process endpoint.
+let notify (observer: Observer<'T>) (msg: Msg<'T>) : unit =
+    sendChildMsg observer.Pid observer.Ref (box msg)
+
+/// Send an OnNext message to an observer.
+let onNext (observer: Observer<'T>) (value: 'T) : unit =
+    notify observer (OnNext value)
+
+/// Send an OnError message to an observer.
+let onError (observer: Observer<'T>) (error: exn) : unit =
+    notify observer (OnError error)
+
+/// Send an OnCompleted message to an observer.
+let onCompleted (observer: Observer<'T>) : unit =
+    notify observer OnCompleted
+
+/// Create an observer endpoint for the current process with a new ref.
+let makeEndpoint<'T> () : Observer<'T> =
+    { Pid = selfPid (); Ref = makeRef () }
+
+// ============================================================================
+// Sender helpers (push to channel actors)
+// ============================================================================
+
+/// Send an OnNext value to a channel actor via Sender.
+let pushNext (sender: Sender<'T>) (value: 'T) : unit =
+    streamNotify sender.ChannelPid (box (OnNext value))
+
+/// Send an OnError to a channel actor via Sender.
+let pushError (sender: Sender<'T>) (error: exn) : unit =
+    streamNotifyTerminal sender.ChannelPid (box (OnError error))
+
+/// Send OnCompleted to a channel actor via Sender.
+let pushCompleted (sender: Sender<'T>) : unit =
+    streamNotifyTerminal sender.ChannelPid (box OnCompleted)
+
+// ============================================================================
+// Actor CE selective receive helpers
+// ============================================================================
+
+/// Selective receive for a specific child ref. Dispatches timers and exits while waiting.
+[<Emit("factor_actor:recv_child($0, $1)")>]
+let private recvChild (ref: obj) (cont: obj -> unit) : unit = nativeOnly
+
+/// Selective receive for any child ref. Dispatches timers and exits while waiting.
+[<Emit("factor_actor:recv_any_child($0)")>]
+let private recvAnyChild (cont: obj -> obj -> unit) : unit = nativeOnly
+
+/// Receive next Msg<'T> from a specific source (single-source operators).
+let recvMsg<'T> (ref: obj) : Actor<_, Msg<'T>> =
+    { Run = fun cont -> recvChild ref (fun msg -> cont (unbox<Msg<'T>> msg)) }
+
+/// Receive next (ref, rawMsg) from any source (multi-source operators).
+let recvAnyMsg () : Actor<_, obj * obj> =
+    { Run = fun cont -> recvAnyChild (fun ref msg -> cont (ref, msg)) }
+
+/// Spawn linked operator process from actor computation, return dispose handle.
+let spawnOp (body: unit -> Actor<_, unit>) : Handle =
+    let pid = spawnLinked (fun () -> (body ()).Run(fun () -> ()))
+    { Dispose = fun () -> killProcess pid }

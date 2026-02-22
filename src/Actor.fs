@@ -68,11 +68,3 @@ let send (pid: Pid<'Msg>) (msg: 'Msg) : unit = sendMsg pid.Pid msg
 
 let self<'Msg> () : Pid<'Msg> = { Pid = selfPid () }
 
-/// Workaround for let rec in closures (Fable.Beam limitation).
-/// Usage: rec' (fun loop state -> actor { ... return! loop newState }) initialState
-let rec' (f: ('State -> Actor<'Msg, unit>) -> 'State -> Actor<'Msg, unit>) (initial: 'State) : Actor<'Msg, unit> =
-    let mutable loop: 'State -> Actor<'Msg, unit> =
-        fun _ -> actor { return () }
-
-    loop <- fun state -> f loop state
-    loop initial

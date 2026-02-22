@@ -4,9 +4,9 @@
 %% Cowboy WebSocket handler for the timeflies demo.
 %%
 %% On init, calls the F# setupPipeline function which returns
-%% {MouseObserver, Disposable}. Mouse events from the browser
-%% are forwarded to the observer, and timer/send messages are
-%% handled inline.
+%% {MouseSender, Disposable}. Mouse events from the browser
+%% are pushed to the channel via Sender, and timer/child/send
+%% messages are handled inline.
 
 init(Req, State) ->
     {cowboy_websocket, Req, State}.
@@ -17,19 +17,21 @@ websocket_init(_State) ->
     SendFn = fun(Json) -> Self ! {send, Json} end,
 
     %% Call the compiled F# setup_pipeline function
-    {MouseObserver, Disposable} = timeflies:setup_pipeline(SendFn),
+    %% Returns {Sender, Handle} where Sender = #{channel_pid => Pid}
+    {MouseSender, Disposable} = timeflies:setup_pipeline(SendFn),
 
-    {ok, #{mouse_observer => MouseObserver, disposable => Disposable}}.
+    {ok, #{mouse_sender => MouseSender, disposable => Disposable}}.
 
 websocket_handle({text, Json}, State) ->
     case jsx:decode(Json, [return_maps]) of
         #{<<"x">> := X, <<"y">> := Y} when is_integer(X), is_integer(Y) ->
-            MouseObserver = maps:get(mouse_observer, State),
+            MouseSender = maps:get(mouse_sender, State),
             %% MousePos record compiles to #{x => X, y => Y}
             MousePos = #{x => X, y => Y},
-            %% Notify with OnNext: Fable.Beam encodes OnNext as {on_next, Value}
-            Notify = maps:get(notify, MouseObserver),
-            Notify({on_next, MousePos}),
+            %% Push OnNext to channel actor via Sender
+            %% Sender = #{channel_pid => Pid}, send {stream_notify, {on_next, Value}}
+            ChannelPid = maps:get(channel_pid, MouseSender),
+            ChannelPid ! {stream_notify, {on_next, MousePos}},
             {ok, State};
         _ ->
             {ok, State}
