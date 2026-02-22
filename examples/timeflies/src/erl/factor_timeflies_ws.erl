@@ -27,9 +27,9 @@ websocket_handle({text, Json}, State) ->
             MouseObserver = maps:get(mouse_observer, State),
             %% MousePos record compiles to #{x => X, y => Y}
             MousePos = #{x => X, y => Y},
-            %% Notify with OnNext: Fable.Beam encodes OnNext as {0, Value}
+            %% Notify with OnNext: Fable.Beam encodes OnNext as {on_next, Value}
             Notify = maps:get(notify, MouseObserver),
-            Notify({0, MousePos}),
+            Notify({on_next, MousePos}),
             {ok, State};
         _ ->
             {ok, State}
