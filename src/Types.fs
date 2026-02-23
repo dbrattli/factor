@@ -32,11 +32,12 @@ type Handle = { Dispose: unit -> unit }
 let emptyHandle () : Handle = { Dispose = fun () -> () }
 
 /// Combine multiple handles into one.
-let compositeHandle (handles: Handle list) : Handle =
-    { Dispose =
+let compositeHandle (handles: Handle list) : Handle = {
+    Dispose =
         fun () ->
             for h in handles do
-                h.Dispose() }
+                h.Dispose()
+}
 
 /// Observer is a process endpoint — the (Pid, Ref) of a process
 /// that receives {factor_child, Ref, Msg} messages.

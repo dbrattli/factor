@@ -15,26 +15,27 @@ let private timerSchedule (ms: int) (callback: unit -> unit) : obj = nativeOnly
 let private timerCancel (timer: obj) : unit = nativeOnly
 
 /// Creates a factor that emits 0 after the specified delay, then completes.
-let timer (delayMs: int) : Factor<int> =
-    { Spawn =
+let timer (delayMs: int) : Factor<int> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
                     let _ =
-                        timerSchedule
-                            delayMs
-                            (fun () ->
-                                Process.onNext downstream 0
-                                Process.onCompleted downstream
-                                Process.exitNormal ())
+                        timerSchedule delayMs (fun () ->
+                            Process.onNext downstream 0
+                            Process.onCompleted downstream
+                            Process.exitNormal ())
 
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}
 
 /// Creates a factor that emits incrementing integers at regular intervals.
-let interval (periodMs: int) : Factor<int> =
-    { Spawn =
+let interval (periodMs: int) : Factor<int> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -46,24 +47,25 @@ let interval (periodMs: int) : Factor<int> =
                     tick <-
                         fun () ->
                             let _ =
-                                timerSchedule
-                                    periodMs
-                                    (fun () ->
-                                        let c = count
-                                        count <- count + 1
-                                        Process.onNext downstream c
-                                        tick ())
+                                timerSchedule periodMs (fun () ->
+                                    let c = count
+                                    count <- count + 1
+                                    Process.onNext downstream c
+                                    tick ())
 
                             ()
 
                     tick ()
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}
 
 /// Delays each emission from the source by the specified time.
-let delay (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Spawn =
+let delay (ms: int) (source: Factor<'T>) : Factor<'T> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -71,46 +73,45 @@ let delay (ms: int) (source: Factor<'T>) : Factor<'T> =
                     let mutable sourceCompleted = false
                     let ref = Process.makeRef ()
 
-                    Process.registerChild
-                        ref
-                        (fun msg ->
-                            let n = unbox<Msg<'T>> msg
+                    Process.registerChild ref (fun msg ->
+                        let n = unbox<Msg<'T>> msg
 
-                            match n with
-                            | OnNext x ->
-                                pending <- pending + 1
+                        match n with
+                        | OnNext x ->
+                            pending <- pending + 1
 
-                                let _ =
-                                    timerSchedule
-                                        ms
-                                        (fun () ->
-                                            Process.onNext downstream x
-                                            pending <- pending - 1
+                            let _ =
+                                timerSchedule ms (fun () ->
+                                    Process.onNext downstream x
+                                    pending <- pending - 1
 
-                                            if sourceCompleted && pending = 0 then
-                                                Process.onCompleted downstream
-                                                Process.exitNormal ())
+                                    if sourceCompleted && pending = 0 then
+                                        Process.onCompleted downstream
+                                        Process.exitNormal ())
 
-                                ()
-                            | OnError e ->
-                                Process.onError downstream e
-                                Process.exitNormal ()
-                            | OnCompleted ->
-                                sourceCompleted <- true
+                            ()
+                        | OnError e ->
+                            Process.onError downstream e
+                            Process.exitNormal ()
+                        | OnCompleted ->
+                            sourceCompleted <- true
 
-                                if pending = 0 then
-                                    Process.onCompleted downstream
-                                    Process.exitNormal ())
+                            if pending = 0 then
+                                Process.onCompleted downstream
+                                Process.exitNormal ())
 
                     let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                     source.Spawn(self) |> ignore
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}
 
 /// Emits a value only after the specified time has passed without another emission.
-let debounce (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Spawn =
+let debounce (ms: int) (source: Factor<'T>) : Factor<'T> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -125,50 +126,49 @@ let debounce (ms: int) (source: Factor<'T>) : Factor<'T> =
                             currentTimer <- None
                         | None -> ()
 
-                    Process.registerChild
-                        ref
-                        (fun msg ->
-                            let n = unbox<Msg<'T>> msg
+                    Process.registerChild ref (fun msg ->
+                        let n = unbox<Msg<'T>> msg
 
-                            match n with
-                            | OnNext x ->
-                                cancelTimer ()
-                                latest <- Some x
+                        match n with
+                        | OnNext x ->
+                            cancelTimer ()
+                            latest <- Some x
 
-                                let t =
-                                    timerSchedule
-                                        ms
-                                        (fun () ->
-                                            match latest with
-                                            | Some v ->
-                                                Process.onNext downstream v
-                                                latest <- None
-                                            | None -> ())
+                            let t =
+                                timerSchedule ms (fun () ->
+                                    match latest with
+                                    | Some v ->
+                                        Process.onNext downstream v
+                                        latest <- None
+                                    | None -> ())
 
-                                currentTimer <- Some t
-                            | OnError e ->
-                                cancelTimer ()
-                                Process.onError downstream e
-                                Process.exitNormal ()
-                            | OnCompleted ->
-                                cancelTimer ()
+                            currentTimer <- Some t
+                        | OnError e ->
+                            cancelTimer ()
+                            Process.onError downstream e
+                            Process.exitNormal ()
+                        | OnCompleted ->
+                            cancelTimer ()
 
-                                match latest with
-                                | Some x -> Process.onNext downstream x
-                                | None -> ()
+                            match latest with
+                            | Some x -> Process.onNext downstream x
+                            | None -> ()
 
-                                Process.onCompleted downstream
-                                Process.exitNormal ())
+                            Process.onCompleted downstream
+                            Process.exitNormal ())
 
                     let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                     source.Spawn(self) |> ignore
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}
 
 /// Rate limits emissions to at most one per specified period.
-let throttle (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Spawn =
+let throttle (ms: int) (source: Factor<'T>) : Factor<'T> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -192,53 +192,52 @@ let throttle (ms: int) (source: Factor<'T>) : Factor<'T> =
                             inWindow <- true
 
                             let t =
-                                timerSchedule
-                                    ms
-                                    (fun () ->
-                                        match latest with
-                                        | Some x ->
-                                            Process.onNext downstream x
-                                            latest <- None
-                                            startWindow ()
-                                        | None -> inWindow <- false)
+                                timerSchedule ms (fun () ->
+                                    match latest with
+                                    | Some x ->
+                                        Process.onNext downstream x
+                                        latest <- None
+                                        startWindow ()
+                                    | None -> inWindow <- false)
 
                             currentTimer <- Some t
 
-                    Process.registerChild
-                        ref
-                        (fun msg ->
-                            let n = unbox<Msg<'T>> msg
+                    Process.registerChild ref (fun msg ->
+                        let n = unbox<Msg<'T>> msg
 
-                            match n with
-                            | OnNext x ->
-                                if not inWindow then
-                                    Process.onNext downstream x
-                                    startWindow ()
-                                else
-                                    latest <- Some x
-                            | OnError e ->
-                                cancelTimer ()
-                                Process.onError downstream e
-                                Process.exitNormal ()
-                            | OnCompleted ->
-                                cancelTimer ()
+                        match n with
+                        | OnNext x ->
+                            if not inWindow then
+                                Process.onNext downstream x
+                                startWindow ()
+                            else
+                                latest <- Some x
+                        | OnError e ->
+                            cancelTimer ()
+                            Process.onError downstream e
+                            Process.exitNormal ()
+                        | OnCompleted ->
+                            cancelTimer ()
 
-                                match latest with
-                                | Some x -> Process.onNext downstream x
-                                | None -> ()
+                            match latest with
+                            | Some x -> Process.onNext downstream x
+                            | None -> ()
 
-                                Process.onCompleted downstream
-                                Process.exitNormal ())
+                            Process.onCompleted downstream
+                            Process.exitNormal ())
 
                     let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                     source.Spawn(self) |> ignore
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}
 
 /// Errors if no emission occurs within the specified timeout period.
-let timeout (ms: int) (source: Factor<'T>) : Factor<'T> =
-    { Spawn =
+let timeout (ms: int) (source: Factor<'T>) : Factor<'T> = {
+    Spawn =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -254,37 +253,37 @@ let timeout (ms: int) (source: Factor<'T>) : Factor<'T> =
 
                     let startTimer () =
                         let t =
-                            timerSchedule
-                                ms
-                                (fun () ->
-                                    Process.onError downstream (TimeoutException(sprintf "Timeout: no emission within %dms" ms))
-                                    Process.exitNormal ())
+                            timerSchedule ms (fun () ->
+                                Process.onError downstream (TimeoutException(sprintf "Timeout: no emission within %dms" ms))
+
+                                Process.exitNormal ())
 
                         currentTimer <- Some t
 
                     startTimer ()
 
-                    Process.registerChild
-                        ref
-                        (fun msg ->
-                            let n = unbox<Msg<'T>> msg
+                    Process.registerChild ref (fun msg ->
+                        let n = unbox<Msg<'T>> msg
 
-                            match n with
-                            | OnNext x ->
-                                cancelTimer ()
-                                Process.onNext downstream x
-                                startTimer ()
-                            | OnError e ->
-                                cancelTimer ()
-                                Process.onError downstream e
-                                Process.exitNormal ()
-                            | OnCompleted ->
-                                cancelTimer ()
-                                Process.onCompleted downstream
-                                Process.exitNormal ())
+                        match n with
+                        | OnNext x ->
+                            cancelTimer ()
+                            Process.onNext downstream x
+                            startTimer ()
+                        | OnError e ->
+                            cancelTimer ()
+                            Process.onError downstream e
+                            Process.exitNormal ()
+                        | OnCompleted ->
+                            cancelTimer ()
+                            Process.onCompleted downstream
+                            Process.exitNormal ())
 
                     let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                     source.Spawn(self) |> ignore
                     Process.childLoop ())
 
-            { Dispose = fun () -> Process.killProcess pid } }
+            {
+                Dispose = fun () -> Process.killProcess pid
+            }
+}

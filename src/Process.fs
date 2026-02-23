@@ -95,13 +95,13 @@ let private dispatchExit (pid: obj) (reason: obj) : unit = nativeOnly
 /// When a terminal event triggers exitNormal(), the process terminates.
 let rec childLoop () : unit =
     match Erlang.receiveForever<LoopMsg> () with
-    | FactorTimer (_, callback) ->
+    | FactorTimer(_, callback) ->
         callback ()
         childLoop ()
-    | FactorChild (ref, notification) ->
+    | FactorChild(ref, notification) ->
         dispatchChild ref notification
         childLoop ()
-    | Exit (pid, reason) ->
+    | Exit(pid, reason) ->
         dispatchExit pid reason
         childLoop ()
 
@@ -113,13 +113,13 @@ let rec private processTimersLoop (endTime: int) : unit =
         ()
     else
         match Erlang.receive<LoopMsg> (min remaining 1) with
-        | Some (FactorTimer (_, callback)) ->
+        | Some(FactorTimer(_, callback)) ->
             callback ()
             processTimersLoop endTime
-        | Some (FactorChild (ref, notification)) ->
+        | Some(FactorChild(ref, notification)) ->
             dispatchChild ref notification
             processTimersLoop endTime
-        | Some (Exit (pid, reason)) ->
+        | Some(Exit(pid, reason)) ->
             dispatchExit pid reason
             processTimersLoop endTime
         | None -> processTimersLoop endTime
@@ -170,20 +170,16 @@ let notify (observer: Observer<'T>) (msg: Msg<'T>) : unit =
     sendChildMsg observer.Pid observer.Ref (box msg)
 
 /// Send an OnNext message to an observer.
-let onNext (observer: Observer<'T>) (value: 'T) : unit =
-    notify observer (OnNext value)
+let onNext (observer: Observer<'T>) (value: 'T) : unit = notify observer (OnNext value)
 
 /// Send an OnError message to an observer.
-let onError (observer: Observer<'T>) (error: exn) : unit =
-    notify observer (OnError error)
+let onError (observer: Observer<'T>) (error: exn) : unit = notify observer (OnError error)
 
 /// Send an OnCompleted message to an observer.
-let onCompleted (observer: Observer<'T>) : unit =
-    notify observer OnCompleted
+let onCompleted (observer: Observer<'T>) : unit = notify observer OnCompleted
 
 /// Create an observer endpoint for the current process with a new ref.
-let makeEndpoint<'T> () : Observer<'T> =
-    { Pid = selfPid (); Ref = makeRef () }
+let makeEndpoint<'T> () : Observer<'T> = { Pid = selfPid (); Ref = makeRef () }
 
 // ============================================================================
 // Sender helpers (push to channel actors)
@@ -214,12 +210,14 @@ let private recvChild (ref: obj) (cont: obj -> unit) : unit = nativeOnly
 let private recvAnyChild (cont: obj -> obj -> unit) : unit = nativeOnly
 
 /// Receive next Msg<'T> from a specific source (single-source operators).
-let recvMsg<'T> (ref: obj) : Actor<_, Msg<'T>> =
-    { Run = fun cont -> recvChild ref (fun msg -> cont (unbox<Msg<'T>> msg)) }
+let recvMsg<'T> (ref: obj) : Actor<_, Msg<'T>> = {
+    Run = fun cont -> recvChild ref (fun msg -> cont (unbox<Msg<'T>> msg))
+}
 
 /// Receive next (ref, rawMsg) from any source (multi-source operators).
-let recvAnyMsg () : Actor<_, obj * obj> =
-    { Run = fun cont -> recvAnyChild (fun ref msg -> cont (ref, msg)) }
+let recvAnyMsg () : Actor<_, obj * obj> = {
+    Run = fun cont -> recvAnyChild (fun ref msg -> cont (ref, msg))
+}
 
 /// Spawn linked operator process from actor computation, return dispose handle.
 let spawnOp (body: unit -> Actor<_, unit>) : Handle =

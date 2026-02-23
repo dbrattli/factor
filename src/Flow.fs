@@ -9,8 +9,7 @@ open Factor.Types
 
 /// Bind a factor to a continuation function.
 /// Uses flatMap — each inner runs in a spawned linked child process.
-let bind (source: Factor<'T>) (continuation: 'T -> Factor<'U>) : Factor<'U> =
-    Transform.flatMap continuation source
+let bind (source: Factor<'T>) (continuation: 'T -> Factor<'U>) : Factor<'U> = Transform.flatMap continuation source
 
 /// Lift a pure value into a factor.
 let ret (value: 'T) : Factor<'T> = Create.single value
@@ -19,8 +18,7 @@ let ret (value: 'T) : Factor<'T> = Create.single value
 let zero<'T> () : Factor<'T> = Create.empty ()
 
 /// Combine two factors sequentially (concat).
-let combine (first: Factor<'T>) (second: Factor<'T>) : Factor<'T> =
-    Combine.concat2 first second
+let combine (first: Factor<'T>) (second: Factor<'T>) : Factor<'T> = Combine.concat2 first second
 
 /// For each item in a list, apply a function and concat results.
 let forEach (items: 'T list) (f: 'T -> Factor<'U>) : Factor<'U> =

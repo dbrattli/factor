@@ -21,23 +21,24 @@ let channel<'T> () : Sender<'T> * Factor<'T> =
 
     let sender: Sender<'T> = { ChannelPid = channelPid }
 
-    let factor =
-        { Spawn =
+    let factor = {
+        Spawn =
             fun downstream ->
                 let ref = Process.makeRef ()
 
-                Process.registerChild
-                    ref
-                    (fun msg ->
-                        let n = unbox<Msg<'T>> msg
-                        Process.notify downstream n)
+                Process.registerChild ref (fun msg ->
+                    let n = unbox<Msg<'T>> msg
+                    Process.notify downstream n)
 
                 Process.streamSubscribe channelPid ref
 
-                { Dispose =
-                    fun () ->
-                        Process.unregisterChild ref
-                        Process.streamUnsubscribe channelPid ref } }
+                {
+                    Dispose =
+                        fun () ->
+                            Process.unregisterChild ref
+                            Process.streamUnsubscribe channelPid ref
+                }
+    }
 
     (sender, factor)
 
@@ -50,23 +51,24 @@ let singleChannel<'T> () : Sender<'T> * Factor<'T> =
 
     let sender: Sender<'T> = { ChannelPid = channelPid }
 
-    let factor =
-        { Spawn =
+    let factor = {
+        Spawn =
             fun downstream ->
                 let ref = Process.makeRef ()
 
-                Process.registerChild
-                    ref
-                    (fun msg ->
-                        let n = unbox<Msg<'T>> msg
-                        Process.notify downstream n)
+                Process.registerChild ref (fun msg ->
+                    let n = unbox<Msg<'T>> msg
+                    Process.notify downstream n)
 
                 Process.streamSubscribe channelPid ref
 
-                { Dispose =
-                    fun () ->
-                        Process.unregisterChild ref
-                        Process.streamUnsubscribe channelPid ref } }
+                {
+                    Dispose =
+                        fun () ->
+                            Process.unregisterChild ref
+                            Process.streamUnsubscribe channelPid ref
+                }
+    }
 
     (sender, factor)
 
@@ -80,8 +82,8 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
     let mutable connection: Handle option = None
     let mutable terminal: Msg<'T> option = None
 
-    let factor =
-        { Spawn =
+    let factor = {
+        Spawn =
             fun downstream ->
                 match terminal with
                 | Some n ->
@@ -92,8 +94,14 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
                     nextId <- nextId + 1
                     subscribers <- (id, downstream) :: subscribers
 
-                    { Dispose =
-                        fun () -> subscribers <- subscribers |> List.filter (fun (sid, _) -> sid <> id) } }
+                    {
+                        Dispose =
+                            fun () ->
+                                subscribers <-
+                                    subscribers
+                                    |> List.filter (fun (sid, _) -> sid <> id)
+                    }
+    }
 
     let connect () =
         match connection with
@@ -105,28 +113,27 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
                 // Create an endpoint in this process to receive source messages
                 let ref = Process.makeRef ()
 
-                Process.registerChild
-                    ref
-                    (fun msg ->
-                        let n = unbox<Msg<'T>> msg
+                Process.registerChild ref (fun msg ->
+                    let n = unbox<Msg<'T>> msg
 
-                        for _, sub in subscribers do
-                            Process.notify sub n
+                    for _, sub in subscribers do
+                        Process.notify sub n
 
-                        match n with
-                        | OnCompleted
-                        | OnError _ -> terminal <- Some n
-                        | OnNext _ -> ())
+                    match n with
+                    | OnCompleted
+                    | OnError _ -> terminal <- Some n
+                    | OnNext _ -> ())
 
                 let sourceEndpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 let sourceHandle = source.Spawn(sourceEndpoint)
 
-                let connHandle =
-                    { Dispose =
+                let connHandle = {
+                    Dispose =
                         fun () ->
                             Process.unregisterChild ref
                             sourceHandle.Dispose()
-                            connection <- None }
+                            connection <- None
+                }
 
                 connection <- Some connHandle
                 connHandle
@@ -148,21 +155,19 @@ let share (source: Factor<'T>) : Factor<'T> =
         let ref = Process.makeRef ()
         sourceRef <- Some ref
 
-        Process.registerChild
-            ref
-            (fun msg ->
-                let n = unbox<Msg<'T>> msg
+        Process.registerChild ref (fun msg ->
+            let n = unbox<Msg<'T>> msg
 
-                for _, sub in subscribers do
-                    Process.notify sub n
+            for _, sub in subscribers do
+                Process.notify sub n
 
-                match n with
-                | OnCompleted
-                | OnError _ ->
-                    terminal <- Some n
-                    sourceHandle <- None
-                    subscribers <- []
-                | OnNext _ -> ())
+            match n with
+            | OnCompleted
+            | OnError _ ->
+                terminal <- Some n
+                sourceHandle <- None
+                subscribers <- []
+            | OnNext _ -> ())
 
         let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
         let h = source.Spawn(endpoint)
@@ -171,35 +176,41 @@ let share (source: Factor<'T>) : Factor<'T> =
         if terminal.IsNone then
             sourceHandle <- Some h
 
-    { Spawn =
-        fun downstream ->
-            // Add subscriber FIRST so sync sources deliver to it
-            let id = nextId
-            nextId <- nextId + 1
-            subscribers <- (id, downstream) :: subscribers
+    {
+        Spawn =
+            fun downstream ->
+                // Add subscriber FIRST so sync sources deliver to it
+                let id = nextId
+                nextId <- nextId + 1
+                subscribers <- (id, downstream) :: subscribers
 
-            // Then connect if needed
-            match terminal with
-            | Some _ when sourceHandle.IsNone ->
-                terminal <- None
-                connectToSource ()
-            | _ ->
-                if sourceHandle.IsNone then
+                // Then connect if needed
+                match terminal with
+                | Some _ when sourceHandle.IsNone ->
+                    terminal <- None
                     connectToSource ()
+                | _ ->
+                    if sourceHandle.IsNone then
+                        connectToSource ()
 
-            { Dispose =
-                fun () ->
-                    subscribers <- subscribers |> List.filter (fun (sid, _) -> sid <> id)
+                {
+                    Dispose =
+                        fun () ->
+                            subscribers <-
+                                subscribers
+                                |> List.filter (fun (sid, _) -> sid <> id)
 
-                    if subscribers.IsEmpty then
-                        match sourceHandle with
-                        | Some h ->
-                            h.Dispose()
-                            sourceHandle <- None
+                            if subscribers.IsEmpty then
+                                match sourceHandle with
+                                | Some h ->
+                                    h.Dispose()
+                                    sourceHandle <- None
 
-                            match sourceRef with
-                            | Some r -> Process.unregisterChild r
-                            | None -> ()
+                                    match sourceRef with
+                                    | Some r -> Process.unregisterChild r
+                                    | None -> ()
 
-                            sourceRef <- None
-                        | None -> () } }
+                                    sourceRef <- None
+                                | None -> ()
+                }
+    }
