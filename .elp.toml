@@ -1,0 +1,6 @@
+[build_info]
+apps = [
+    {name = "factor", dir = "build", src_dirs = ["."]},
+    {name = "fable_library", dir = "build/fable_modules/fable-library-beam", src_dirs = ["."]},
+]
+deps = []

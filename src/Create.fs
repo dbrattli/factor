@@ -12,45 +12,49 @@ open Factor.Types
 let create (subscribe: Observer<'T> -> Handle) : Factor<'T> = { Spawn = subscribe }
 
 /// Returns a factor containing a single element.
-let single (value: 'T) : Factor<'T> =
-    { Spawn =
+let single (value: 'T) : Factor<'T> = {
+    Spawn =
         fun observer ->
             Process.onNext observer value
             Process.onCompleted observer
-            emptyHandle () }
+            emptyHandle ()
+}
 
 /// Returns a factor with no elements that completes immediately.
-let empty<'T> () : Factor<'T> =
-    { Spawn =
+let empty<'T> () : Factor<'T> = {
+    Spawn =
         fun observer ->
             Process.onCompleted observer
-            emptyHandle () }
+            emptyHandle ()
+}
 
 /// Returns a factor that never emits and never completes.
-let never<'T> () : Factor<'T> =
-    { Spawn = fun _ -> emptyHandle () }
+let never<'T> () : Factor<'T> = { Spawn = fun _ -> emptyHandle () }
 
 /// Returns a factor that errors immediately with the given error.
-let fail (error: exn) : Factor<'T> =
-    { Spawn =
+let fail (error: exn) : Factor<'T> = {
+    Spawn =
         fun observer ->
             Process.onError observer error
-            emptyHandle () }
+            emptyHandle ()
+}
 
 /// Returns a factor from a list of values.
-let ofList (items: 'T list) : Factor<'T> =
-    { Spawn =
+let ofList (items: 'T list) : Factor<'T> = {
+    Spawn =
         fun observer ->
             for x in items do
                 Process.onNext observer x
 
             Process.onCompleted observer
-            emptyHandle () }
+            emptyHandle ()
+}
 
 /// Returns a factor that invokes the factory function
 /// whenever a new observer subscribes.
-let defer (factory: unit -> Factor<'T>) : Factor<'T> =
-    { Spawn =
+let defer (factory: unit -> Factor<'T>) : Factor<'T> = {
+    Spawn =
         fun observer ->
             let f = factory ()
-            f.Spawn(observer) }
+            f.Spawn(observer)
+}

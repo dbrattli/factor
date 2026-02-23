@@ -1,0 +1,3 @@
+disabled_lints = [
+    'W0054',  # Do not suppress compiler warnings at module level (generated code)
+]

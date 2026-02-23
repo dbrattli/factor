@@ -42,7 +42,7 @@ let setupPipeline (sendFn: string -> unit) : Sender<MousePos> * Handle =
         |> subscribe
             (fun lp ->
                 let json =
-                    $"""{{\"index\":{lp.Index},\"char\":\"{lp.Char}\",\"x\":{lp.X},\"y\":{lp.Y}}}"""
+                    sprintf "{\"index\":%d,\"char\":\"%s\",\"x\":%d,\"y\":%d}" lp.Index lp.Char lp.X lp.Y
 
                 sendFn json)
             (fun _ -> ())

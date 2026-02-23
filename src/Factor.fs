@@ -32,35 +32,30 @@ let spawn (observer: Observer<'T>) (factor: Factor<'T>) : Handle = factor.Spawn(
 /// Subscribe to a factor with user callbacks.
 /// Registers a child handler in the current process for receiving messages.
 /// The caller's process must run a message loop (sleep/processTimers).
-let subscribe
-    (onNextFn: 'T -> unit)
-    (onErrorFn: exn -> unit)
-    (onCompletedFn: unit -> unit)
-    (factor: Factor<'T>)
-    : Handle =
+let subscribe (onNextFn: 'T -> unit) (onErrorFn: exn -> unit) (onCompletedFn: unit -> unit) (factor: Factor<'T>) : Handle =
     let ref = Process.makeRef ()
 
-    Process.registerChild
-        ref
-        (fun msg ->
-            let n = unbox<Msg<'T>> msg
+    Process.registerChild ref (fun msg ->
+        let n = unbox<Msg<'T>> msg
 
-            match n with
-            | OnNext x -> onNextFn x
-            | OnError e ->
-                Process.unregisterChild ref
-                onErrorFn e
-            | OnCompleted ->
-                Process.unregisterChild ref
-                onCompletedFn ())
+        match n with
+        | OnNext x -> onNextFn x
+        | OnError e ->
+            Process.unregisterChild ref
+            onErrorFn e
+        | OnCompleted ->
+            Process.unregisterChild ref
+            onCompletedFn ())
 
     let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
     let handle = factor.Spawn(endpoint)
 
-    { Dispose =
-        fun () ->
-            Process.unregisterChild ref
-            handle.Dispose() }
+    {
+        Dispose =
+            fun () ->
+                Process.unregisterChild ref
+                handle.Dispose()
+    }
 
 // ============================================================================
 // Handle helpers
@@ -91,7 +86,10 @@ let flatMap mapper source = Transform.flatMap mapper source
 let flatMapi mapper source = Transform.flatMapi mapper source
 let concatMap mapper source = Transform.concatMap mapper source
 let concatMapi mapper source = Transform.concatMapi mapper source
-let mergeInner policy maxConcurrency source = Transform.mergeInner policy maxConcurrency source
+
+let mergeInner policy maxConcurrency source =
+    Transform.mergeInner policy maxConcurrency source
+
 let concatInner source = Transform.concatInner source
 let switchInner source = Transform.switchInner source
 let switchMap mapper source = Transform.switchMap mapper source
@@ -99,8 +97,13 @@ let switchMapi mapper source = Transform.switchMapi mapper source
 let tap effect source = Transform.tap effect source
 let startWith values source = Transform.startWith values source
 let pairwise source = Transform.pairwise source
-let scan initial accumulator source = Transform.scan initial accumulator source
-let reduce initial accumulator source = Transform.reduce initial accumulator source
+
+let scan initial accumulator source =
+    Transform.scan initial accumulator source
+
+let reduce initial accumulator source =
+    Transform.reduce initial accumulator source
+
 let groupBy keySelector source = Transform.groupBy keySelector source
 
 // ============================================================================
@@ -118,7 +121,10 @@ let takeUntil other source = Filter.takeUntil other source
 let takeLast count source = Filter.takeLast count source
 let first source = Filter.first source
 let last source = Filter.last source
-let defaultIfEmpty defaultValue source = Filter.defaultIfEmpty defaultValue source
+
+let defaultIfEmpty defaultValue source =
+    Filter.defaultIfEmpty defaultValue source
+
 let sample sampler source = Filter.sample sampler source
 let distinct source = Filter.distinct source
 
@@ -128,8 +134,13 @@ let distinct source = Filter.distinct source
 
 let merge sources = Combine.merge sources
 let merge2 source1 source2 = Combine.merge2 source1 source2
-let combineLatest combiner source1 source2 = Combine.combineLatest combiner source1 source2
-let withLatestFrom combiner sampler source = Combine.withLatestFrom combiner sampler source
+
+let combineLatest combiner source1 source2 =
+    Combine.combineLatest combiner source1 source2
+
+let withLatestFrom combiner sampler source =
+    Combine.withLatestFrom combiner sampler source
+
 let zip combiner source1 source2 = Combine.zip combiner source1 source2
 let concat sources = Combine.concat sources
 let concat2 source1 source2 = Combine.concat2 source1 source2
