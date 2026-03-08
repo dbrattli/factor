@@ -13,7 +13,7 @@ open Factor.TestUtils
 let actor_spawn_raw_test () =
     let tc = TestCollector<string>()
     let (input, output) = Reactive.singleSubscriber ()
-    output |> Reactive.spawn tc.Observer |> ignore
+    output |> _.Subscribe(tc.Observer) |> ignore
 
     // Raw spawn — the body is just a function, no message handling
     Actor.spawn (fun () ->
@@ -38,7 +38,7 @@ type Command =
 let actor_start_basic_test () =
     let tc = TestCollector<int>()
     let (input, output) = Reactive.singleSubscriber ()
-    output |> Reactive.spawn tc.Observer |> ignore
+    output |> _.Subscribe(tc.Observer) |> ignore
 
     let pid =
         Actor.start 0 (fun total msg ->
@@ -63,7 +63,7 @@ let actor_start_basic_test () =
 let actor_start_stop_test () =
     let tc = TestCollector<int>()
     let (input, output) = Reactive.singleSubscriber ()
-    output |> Reactive.spawn tc.Observer |> ignore
+    output |> _.Subscribe(tc.Observer) |> ignore
 
     let pid =
         Actor.start 0 (fun count msg ->
@@ -97,7 +97,7 @@ type CounterMsg =
 let actor_call_reply_test () =
     let tc = TestCollector<int>()
     let (input, output) = Reactive.singleSubscriber ()
-    output |> Reactive.spawn tc.Observer |> ignore
+    output |> _.Subscribe(tc.Observer) |> ignore
 
     // Spawn a counter actor using start
     let counter =

@@ -14,7 +14,7 @@ let map_transforms_values_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.map (fun x -> x * 10)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -28,7 +28,7 @@ let map_chained_test () =
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.map (fun x -> x * 10)
     |> Reactive.map (fun x -> x + 1)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -41,7 +41,7 @@ let map_identity_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.map id
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -53,7 +53,7 @@ let map_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.map (fun x -> x * 10)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -66,7 +66,7 @@ let map_single_value_test () =
 
     Reactive.single 42
     |> Reactive.map (fun x -> x * 10)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -79,7 +79,7 @@ let map_notifications_test () =
 
     Reactive.ofList [ 1; 2 ]
     |> Reactive.map (fun x -> x * 10)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -91,7 +91,7 @@ let map_constant_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.map (fun _ -> 99)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -107,7 +107,7 @@ let flat_map_flattens_observables_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.flatMap (fun x -> Reactive.single (x * 10))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -120,7 +120,7 @@ let flat_map_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.flatMap (fun x -> Reactive.single x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -133,7 +133,7 @@ let flat_map_to_empty_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.flatMap (fun _ -> Reactive.empty ())
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -146,7 +146,7 @@ let flat_map_expands_to_multiple_test () =
 
     Reactive.ofList [ 1; 2 ]
     |> Reactive.flatMap (fun x -> Reactive.ofList [ x; x * 10 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -161,7 +161,7 @@ let flat_map_cartesian_product_test () =
     |> Reactive.flatMap (fun x ->
         Reactive.ofList [ 10; 20 ]
         |> Reactive.map (fun y -> x + y))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -178,11 +178,11 @@ let flat_map_monad_law_left_identity_test () =
     let f = fun x -> Reactive.single (x * 10)
 
     let tc1 = TestCollector<int>()
-    Reactive.single 42 |> Reactive.flatMap f |> Reactive.spawn tc1.Observer |> ignore
+    Reactive.single 42 |> Reactive.flatMap f |> _.Subscribe(tc1.Observer) |> ignore
     sleep 50
 
     let tc2 = TestCollector<int>()
-    f 42 |> Reactive.spawn tc2.Observer |> ignore
+    f 42 |> _.Subscribe(tc2.Observer) |> ignore
 
     sleep 50
 
@@ -192,12 +192,12 @@ let flat_map_monad_law_left_identity_test () =
 /// Right identity: m >>= return  ===  m
 let flat_map_monad_law_right_identity_test () =
     let tc1 = TestCollector<int>()
-    Reactive.single 42 |> Reactive.spawn tc1.Observer |> ignore
+    Reactive.single 42 |> _.Subscribe(tc1.Observer) |> ignore
 
     sleep 50
 
     let tc2 = TestCollector<int>()
-    Reactive.single 42 |> Reactive.flatMap Reactive.single |> Reactive.spawn tc2.Observer |> ignore
+    Reactive.single 42 |> Reactive.flatMap Reactive.single |> _.Subscribe(tc2.Observer) |> ignore
     sleep 50
 
     shouldEqual tc1.Results tc2.Results
@@ -210,14 +210,14 @@ let flat_map_monad_law_associativity_test () =
     let g = fun x -> Reactive.single (x * 42)
 
     let tc1 = TestCollector<int>()
-    m |> Reactive.flatMap f |> Reactive.flatMap g |> Reactive.spawn tc1.Observer |> ignore
+    m |> Reactive.flatMap f |> Reactive.flatMap g |> _.Subscribe(tc1.Observer) |> ignore
     sleep 50
 
     let tc2 = TestCollector<int>()
 
     Reactive.single 42
     |> Reactive.flatMap (fun x -> f x |> Reactive.flatMap g)
-    |> Reactive.spawn tc2.Observer
+    |> _.Subscribe(tc2.Observer)
     |> ignore
 
     sleep 50
@@ -234,7 +234,7 @@ let concat_map_preserves_order_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.concatMap (fun x -> Reactive.ofList [ x; x * 10 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -247,7 +247,7 @@ let concat_map_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.concatMap (fun x -> Reactive.single x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -260,7 +260,7 @@ let concat_map_to_single_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.concatMap (fun x -> Reactive.single (x * 100))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -277,7 +277,7 @@ let scan_running_sum_test () =
 
     Reactive.ofList [ 1; 2; 3; 4; 5 ]
     |> Reactive.scan 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -290,7 +290,7 @@ let scan_running_product_test () =
 
     Reactive.ofList [ 1; 2; 3; 4 ]
     |> Reactive.scan 1 (fun acc x -> acc * x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -303,7 +303,7 @@ let scan_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.scan 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -316,7 +316,7 @@ let scan_single_value_test () =
 
     Reactive.single 42
     |> Reactive.scan 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -329,7 +329,7 @@ let scan_collect_to_list_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.scan [] (fun acc x -> acc @ [ x ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -346,7 +346,7 @@ let reduce_sum_test () =
 
     Reactive.ofList [ 1; 2; 3; 4; 5 ]
     |> Reactive.reduce 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -359,7 +359,7 @@ let reduce_product_test () =
 
     Reactive.ofList [ 1; 2; 3; 4 ]
     |> Reactive.reduce 1 (fun acc x -> acc * x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -372,7 +372,7 @@ let reduce_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.reduce 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -385,7 +385,7 @@ let reduce_single_value_test () =
 
     Reactive.single 42
     |> Reactive.reduce 0 (fun acc x -> acc + x)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -398,7 +398,7 @@ let reduce_collect_to_list_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.reduce [] (fun acc x -> acc @ [ x ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -411,7 +411,7 @@ let reduce_count_test () =
 
     Reactive.ofList [ "a"; "b"; "c"; "d"; "e" ]
     |> Reactive.reduce 0 (fun acc _ -> acc + 1)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -428,7 +428,7 @@ let switch_inner_basic_test () =
 
     Reactive.ofList [ Reactive.ofList [ 1; 2; 3 ]; Reactive.ofList [ 4; 5; 6 ] ]
     |> Reactive.switchInner
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -442,7 +442,7 @@ let switch_map_basic_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.switchMap (fun x -> Reactive.ofList [ x; x * 10 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -454,7 +454,7 @@ let switch_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
     let emptyOuter: Observable<Observable<int>> = Reactive.empty ()
-    emptyOuter |> Reactive.switchInner |> Reactive.spawn tc.Observer |> ignore
+    emptyOuter |> Reactive.switchInner |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
 
@@ -467,7 +467,7 @@ let switch_map_async_cancels_previous_test () =
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.switchMap (fun x ->
         Reactive.timer (x * 30) |> Reactive.map (fun _ -> x))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 200
@@ -487,7 +487,7 @@ let tap_basic_test () =
     // Instead, we verify values pass through unchanged.
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.tap (fun _x -> ())
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -501,7 +501,7 @@ let tap_does_not_modify_values_test () =
     Reactive.ofList [ 10; 20; 30 ]
     |> Reactive.tap (fun _ -> ())
     |> Reactive.map (fun x -> x * 2)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -518,7 +518,7 @@ let start_with_basic_test () =
 
     Reactive.ofList [ 3; 4; 5 ]
     |> Reactive.startWith [ 1; 2 ]
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -531,7 +531,7 @@ let start_with_empty_prefix_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.startWith []
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -544,7 +544,7 @@ let start_with_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.startWith [ 1; 2 ]
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -561,7 +561,7 @@ let pairwise_basic_test () =
 
     Reactive.ofList [ 1; 2; 3; 4 ]
     |> Reactive.pairwise
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -574,7 +574,7 @@ let pairwise_single_element_test () =
 
     Reactive.single 1
     |> Reactive.pairwise
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -587,7 +587,7 @@ let pairwise_empty_test () =
 
     Reactive.empty ()
     |> Reactive.pairwise
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50

@@ -15,7 +15,7 @@ let retry_no_error_completes_normally_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.retry 3
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -28,7 +28,7 @@ let retry_max_retries_then_error_test () =
 
     Reactive.fail (FactorException "Always fails")
     |> Reactive.retry 2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -41,7 +41,7 @@ let retry_zero_retries_propagates_immediately_test () =
 
     Reactive.fail (FactorException "Immediate fail")
     |> Reactive.retry 0
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -54,7 +54,7 @@ let retry_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.retry 3
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -67,7 +67,7 @@ let retry_single_value_test () =
 
     Reactive.single 42
     |> Reactive.retry 3
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -91,7 +91,7 @@ let retry_partial_then_error_respawns_test () =
 
     failingSource
     |> Reactive.retry 2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -110,7 +110,7 @@ let catch_no_error_passes_through_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.catch (fun _ -> Reactive.single 99)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -123,7 +123,7 @@ let catch_error_switches_to_fallback_test () =
 
     Reactive.fail (FactorException "Oops")
     |> Reactive.catch (fun _ -> Reactive.single 42)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -136,7 +136,7 @@ let catch_error_with_fallback_list_test () =
 
     Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.ofList [ 10; 20; 30 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -153,7 +153,7 @@ let catch_partial_emission_then_error_test () =
         Process.onError observer (FactorException "Midway error")
         Reactive.emptyHandle ())
     |> Reactive.catch (fun _ -> Reactive.ofList [ 100; 200 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -166,7 +166,7 @@ let catch_handler_receives_error_message_test () =
 
     Reactive.fail (FactorException "Custom error")
     |> Reactive.catch (fun err -> Reactive.single (sprintf "Caught: %A" err))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -179,7 +179,7 @@ let catch_fallback_empty_test () =
 
     Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.empty ())
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -192,7 +192,7 @@ let catch_fallback_also_errors_propagates_test () =
 
     Reactive.fail (FactorException "Error 1")
     |> Reactive.catch (fun _ -> Reactive.fail (FactorException "Error 2"))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -206,7 +206,7 @@ let catch_chained_catches_both_errors_test () =
     Reactive.fail (FactorException "Error 1")
     |> Reactive.catch (fun _ -> Reactive.fail (FactorException "Error 2"))
     |> Reactive.catch (fun _ -> Reactive.single 999)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -220,7 +220,7 @@ let catch_chained_first_succeeds_test () =
     Reactive.fail (FactorException "Error 1")
     |> Reactive.catch (fun _ -> Reactive.ofList [ 1; 2; 3 ])
     |> Reactive.catch (fun _ -> Reactive.single 999)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -240,7 +240,7 @@ let catch_preserves_notification_sequence_test () =
             Process.onNext observer 2
             Process.onCompleted observer
             Reactive.emptyHandle ()))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -256,7 +256,7 @@ let retry_then_catch_test () =
     Reactive.fail (FactorException "Error")
     |> Reactive.retry 2
     |> Reactive.catch (fun _ -> Reactive.single 0)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -270,7 +270,7 @@ let catch_then_retry_test () =
     Reactive.fail (FactorException "Error")
     |> Reactive.catch (fun _ -> Reactive.single 42)
     |> Reactive.retry 2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50

@@ -30,7 +30,7 @@ let mapi (mapper: 'T -> int -> 'U) (source: Observable<'T>) : Observable<'U> =
 /// - Some(1): Sequential (equivalent to concatInner)
 /// - Some(n): At most n inner observables active at once
 let mergeInner (policy: SupervisionPolicy) (maxConcurrency: int option) (source: Observable<Observable<'T>>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -199,7 +199,7 @@ let concatMapi (mapper: 'T -> int -> Observable<'U>) (source: Observable<'T>) : 
 /// Flattens an Observable of Observables by switching to the latest.
 /// Only messages from the most recent inner observable are forwarded.
 let switchInner (source: Observable<Observable<'T>>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let outerRef = Process.makeRef ()
@@ -267,7 +267,7 @@ let tap (effect: 'T -> unit) (source: Observable<'T>) : Observable<'T> =
 
 /// Prepends values before the source emissions.
 let startWith (values: 'T list) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             for v in values do
                 Process.onNext downstream v
@@ -324,7 +324,7 @@ let reduce (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) 
 /// Each group is backed by a singleSubscriber channel agent, so group
 /// sub-observables can be subscribed from any process.
 let groupBy (keySelector: 'T -> 'K) (source: Observable<'T>) : Observable<'K * Observable<'T>> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             let ref = Process.makeRef ()
 

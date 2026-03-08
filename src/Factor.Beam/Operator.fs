@@ -109,13 +109,13 @@ let forNext
     : Observable<'U>
     =
     {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 let ref = Process.makeRef ()
 
                 spawnOp (fun () ->
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                    source.Subscribe(upstream) |> ignore
+                    source.subscribe(upstream) |> ignore
 
                     let rec loop () =
                         actor {
@@ -141,13 +141,13 @@ let forNextStateful
     : Observable<'U>
     =
     {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 let ref = Process.makeRef ()
 
                 spawnOp (fun () ->
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                    source.Subscribe(upstream) |> ignore
+                    source.subscribe(upstream) |> ignore
 
                     let rec loop state =
                         actor {
@@ -173,13 +173,13 @@ let ofMsgStateful
     : Observable<'U>
     =
     {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 let ref = Process.makeRef ()
 
                 spawnOp (fun () ->
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                    source.Subscribe(upstream) |> ignore
+                    source.subscribe(upstream) |> ignore
 
                     let rec loop state =
                         actor {
@@ -203,15 +203,15 @@ let ofMsg2
     : Observable<'U>
     =
     {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 spawnOp (fun () ->
                     let ref1 = Process.makeRef ()
                     let ref2 = Process.makeRef ()
                     let self1: Observer<'T1> = { Pid = Process.selfPid (); Ref = ref1 }
-                    source1.Subscribe(self1) |> ignore
+                    source1.subscribe(self1) |> ignore
                     let self2: Observer<'T2> = { Pid = Process.selfPid (); Ref = ref2 }
-                    source2.Subscribe(self2) |> ignore
+                    source2.subscribe(self2) |> ignore
 
                     let rec loop state =
                         actor {

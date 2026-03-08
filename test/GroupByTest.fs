@@ -18,7 +18,7 @@ let group_by_basic_test () =
         values
         |> Reactive.reduce [] (fun acc v -> acc @ [ v ])
         |> Reactive.map (fun collected -> (key, collected)))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -34,7 +34,7 @@ let group_by_single_group_test () =
     |> Reactive.groupBy (fun _ -> "all")
     |> Reactive.flatMap (fun (key, values) ->
         values |> Reactive.map (fun v -> (key, v)))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -48,7 +48,7 @@ let group_by_each_unique_key_test () =
     Reactive.ofList [ 1; 2; 3 ]
     |> Reactive.groupBy (fun x -> x)
     |> Reactive.flatMap (fun (_, values) -> values)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -61,10 +61,10 @@ let group_by_empty_source_test () =
 
     Reactive.empty ()
     |> Reactive.groupBy (fun (x: int) -> x % 2)
-    |> Reactive.subscribe
-        (fun _ -> groupCount <- groupCount + 1)
-        (fun _ -> ())
-        (fun () -> ())
+    |> _.Subscribe(
+        (fun _ -> groupCount <- groupCount + 1),
+        (fun _ -> ()),
+        (fun () -> ()))
     |> ignore
 
     shouldEqual 0 groupCount
@@ -75,7 +75,7 @@ let group_by_count_groups_test () =
     Reactive.ofList [ 1; 2; 3; 4; 5; 6; 7; 8 ]
     |> Reactive.groupBy (fun x -> x % 3)
     |> Reactive.reduce 0 (fun count _ -> count + 1)
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -90,7 +90,7 @@ let group_by_preserves_order_within_group_test () =
     |> Reactive.groupBy (fun _ -> "evens")
     |> Reactive.flatMap (fun (_, values) ->
         values |> Reactive.reduce [] (fun acc v -> acc @ [ v ]))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -111,7 +111,7 @@ let group_by_with_strings_test () =
         values
         |> Reactive.reduce [] (fun acc v -> acc @ [ v ])
         |> Reactive.map (fun collected -> (key, collected)))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50

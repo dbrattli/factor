@@ -10,7 +10,7 @@ open Factor.Beam.Actor
 
 /// Merges multiple observable sequences into one.
 let merge (sources: Observable<'T> list) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             match sources with
             | [] ->
@@ -19,7 +19,7 @@ let merge (sources: Observable<'T> list) : Observable<'T> = {
             | _ ->
                 Operator.spawnOp (fun () ->
                     List.iter
-                        (fun source ->
+                        (fun (source: Observable<'T>) ->
                             let ref = Process.makeRef ()
                             let self: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                             source.Subscribe(self) |> ignore)
@@ -119,7 +119,7 @@ let withLatestFrom (combiner: 'T -> 'U -> 'V) (sampler: Observable<'U>) (source:
 
 /// Pairs elements from two observables by index.
 let zip (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observable<'U>) : Observable<'V> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref1 = Process.makeRef ()
@@ -183,7 +183,7 @@ let zip (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observabl
 
 /// Concatenates multiple observables sequentially.
 let concat (sources: Observable<'T> list) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             match sources with
             | [] ->
@@ -223,7 +223,7 @@ let concat2 (source1: Observable<'T>) (source2: Observable<'T>) : Observable<'T>
 
 /// Returns the observable that emits first.
 let amb (sources: Observable<'T> list) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             match sources with
             | [] ->
@@ -286,7 +286,7 @@ let race (sources: Observable<'T> list) : Observable<'T> = amb sources
 
 /// Waits for all observables to complete, then emits a list of their last values.
 let forkJoin (sources: Observable<'T> list) : Observable<'T list> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             match sources with
             | [] ->

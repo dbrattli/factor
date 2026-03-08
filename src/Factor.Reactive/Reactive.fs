@@ -24,41 +24,6 @@ let pushError observer error = Channel.pushError observer error
 let pushCompleted observer = Channel.pushCompleted observer
 
 // ============================================================================
-// Spawn / Subscribe helpers
-// ============================================================================
-
-/// Subscribe an observer endpoint to an observable.
-let spawn (observer: Observer<'T>) (observable: Observable<'T>) : Handle = observable.Subscribe(observer)
-
-/// Subscribe to an observable with user callbacks.
-/// Registers a child handler in the current process for receiving messages.
-/// The caller's process must run a message loop (sleep/processTimers).
-let subscribe (onNextFn: 'T -> unit) (onErrorFn: exn -> unit) (onCompletedFn: unit -> unit) (observable: Observable<'T>) : Handle =
-    let ref = Process.makeRef ()
-
-    Process.registerChild ref (fun msg ->
-        let n = unbox<Msg<'T>> msg
-
-        match n with
-        | OnNext x -> onNextFn x
-        | OnError e ->
-            Process.unregisterChild ref
-            onErrorFn e
-        | OnCompleted ->
-            Process.unregisterChild ref
-            onCompletedFn ())
-
-    let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-    let handle = observable.Subscribe(endpoint)
-
-    {
-        Dispose =
-            fun () ->
-                Process.unregisterChild ref
-                handle.Dispose()
-    }
-
-// ============================================================================
 // Handle helpers
 // ============================================================================
 

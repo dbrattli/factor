@@ -10,13 +10,13 @@ open Factor.Beam.Actor
 /// Resubscribes to the source observable when an error occurs,
 /// up to the specified number of retries.
 let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let rec subscribeToSource (retriesLeft: int) =
                     let ref = Process.makeRef ()
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                    source.Subscribe upstream |> ignore
+                    source.Subscribe(upstream) |> ignore
 
                     let rec loop () =
                         actor {
@@ -41,7 +41,7 @@ let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
 
 /// On error, switches to a fallback observable returned by the error handler.
 let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
@@ -65,7 +65,7 @@ let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Obser
                                 Ref = fallbackRef
                             }
 
-                            fallback.Subscribe fallbackUpstream |> ignore
+                            fallback.Subscribe(fallbackUpstream) |> ignore
 
                             let rec innerLoop () =
                                 actor {

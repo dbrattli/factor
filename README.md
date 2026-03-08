@@ -55,10 +55,10 @@ let pipeline =
 // Subscribe with callbacks
 let _handle =
     pipeline
-    |> Reactive.subscribe
-        (fun x -> printfn "Value: %d" x)
-        (fun _err -> ())
-        (fun () -> printfn "Done!")
+    |> _.Subscribe(
+        (fun x -> printfn "Value: %d" x),
+        (fun _err -> ()),
+        (fun () -> printfn "Done!"))
 // Output:
 // Value: 20
 // Value: 40
@@ -183,10 +183,10 @@ let pipeline =
 
 let handle =
     pipeline
-    |> Reactive.subscribe
-        (fun x -> printfn "%d" x)
-        (fun _ -> ())
-        (fun () -> printfn "Done!")
+    |> _.Subscribe(
+        (fun x -> printfn "%d" x),
+        (fun _ -> ()),
+        (fun () -> printfn "Done!"))
 // Output over 500ms: 0, 10, 20, 30, 40, Done!
 
 // Can dispose early to cancel
@@ -206,10 +206,10 @@ let observer, output = Reactive.multicast ()
 // Subscribe to output
 let _handle =
     output
-    |> Reactive.subscribe
-        (fun x -> printfn "Got: %d" x)
-        (fun _err -> ())
-        (fun () -> printfn "Done!")
+    |> _.Subscribe(
+        (fun x -> printfn "Got: %d" x),
+        (fun _err -> ()),
+        (fun () -> printfn "Done!"))
 
 // Push values through observer
 Reactive.pushNext observer 1

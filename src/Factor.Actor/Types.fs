@@ -66,7 +66,7 @@ type ChannelMsg<'T> =
     | Unsubscribe of obj
 
 /// Observable is a lazy push-based stream with exception-typed errors.
-type Observable<'T> = { Subscribe: Observer<'T> -> Handle }
+type Observable<'T> = { subscribe: Observer<'T> -> Handle }
 
 /// Supervision policy for spawned child processes.
 ///
