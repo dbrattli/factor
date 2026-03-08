@@ -54,7 +54,7 @@ type Observer<'T> = { Pid: obj; Ref: obj }  // process endpoint, not a callback
 // Rx grammar enforced by process termination:
 // Terminal events end the agent loop — process exits, links cascade
 let rec loop () = agent {
-    let! msg = Actor.recvMsg<'T> ref
+    let! msg = Operator.recvMsg<'T> ref
     match msg with
     | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
     | OnError e -> Process.onError downstream e          // no loop → exits
@@ -79,16 +79,16 @@ type Observable<'T> = { Subscribe: Observer<'T> -> Handle }
 
 // Every operator spawns a BEAM process using the agent CE
 let map (mapper: 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         Process.onNext downstream (mapper x))
 
 // Under the hood, forNext does:
 // { Subscribe = fun downstream ->
-//     Actor.spawnOp (fun () ->
+//     Operator.spawnOp (fun () ->
 //         let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
 //         source.Subscribe(upstream) |> ignore
 //         let rec loop () = agent {
-//             let! msg = Actor.recvMsg<'T> ref
+//             let! msg = Operator.recvMsg<'T> ref
 //             match msg with
 //             | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
 //             | OnError e -> Process.onError downstream e
@@ -127,7 +127,7 @@ Raw actors receive from anyone with their Pid. `Observable<'T>` wraps the observ
 
 | Layer |                   Types                    |                                       Files                                       |                 Purpose                  |
 | ----- | ------------------------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------- |
-| 0     | BEAM process, Agent                        | `Process.fs`, `Agent.fs`, `Actor.fs`, `factor_actor.erl`                          | Raw actor primitives, agent CE, operator machinery |
+| 0     | BEAM process, Agent                        | `Process.fs`, `Agent.fs`, `Operator.fs`, `factor_actor.erl`                          | Raw actor primitives, agent CE, operator machinery |
 | 1     | `Msg<'T>`, `Observer<'T>`                  | `Types.fs`                                                                        | Restricted protocol, process endpoints   |
 | 2     | `Observable<'T>`, `Handle`, operators      | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs`, `Builder.fs` | Composable process-per-operator actors   |
 
@@ -169,7 +169,7 @@ observable {
 
 ### agent { } — Layer 0 Foundation
 
-The Agent CE (`agent { let! msg = recv () }`) is a direct Layer 0 primitive — the foundation that operators are built on. It provides CPS-based selective receive, which operators use internally via `Actor.recvMsg` and `Actor.recvAnyMsg`. It can also be used directly for patterns that Rx can't express (blocking selective receive, request-response), though bridging to Observable pipelines requires a channel.
+The Agent CE (`agent { let! msg = recv () }`) is a direct Layer 0 primitive — the foundation that operators are built on. It provides CPS-based selective receive, which operators use internally via `Operator.recvMsg` and `Operator.recvAnyMsg`. It can also be used directly for patterns that Rx can't express (blocking selective receive, request-response), though bridging to Observable pipelines requires a channel.
 
 ```fsharp
 let counterAgent = Agent.start 0 (fun count msg ->
@@ -195,13 +195,13 @@ let counterAgent = Agent.start 0 (fun count msg ->
 
 ### What Each Concept Really Is
 
-**Observable<'T> = An Unborn Actor.** An `Observable<'T>` is a blueprint — it describes what an actor will do when subscribed. Nothing happens until `Subscribe` is called. Subscribing IS instantiation.
+**Observable<'T> = An Unborn Operator.** An `Observable<'T>` is a blueprint — it describes what an actor will do when subscribed. Nothing happens until `Subscribe` is called. Subscribing IS instantiation.
 
 **multicast() = A Running Actor's Mailbox.** `multicast()` returns `Observer<'T> * Observable<'T>` — input and output. This is an agent that's already alive (a BEAM process), waiting for messages.
 
 **Rx Operators = Actor Behavior.** Each operator IS a BEAM process. The pipeline between input and output is a tree of linked processes.
 
-**flatMap = Spawn Child Actor.** Each `let!` in `observable { }` spawns a child process. The supervision tree emerges from the pipeline topology.
+**flatMap = Spawn Child Operator.** Each `let!` in `observable { }` spawns a child process. The supervision tree emerges from the pipeline topology.
 
 **subscribe = Actor Instantiation.** Subscribing starts the pipeline running. The returned Handle controls the actor's lifetime.
 
@@ -294,7 +294,7 @@ let handle = pipeline |> Reactive.spawn observer
 // Each operator's agent CE loop enforces the Rx grammar:
 // Terminal events end the loop — process exits, links cascade
 let rec loop () = agent {
-    let! msg = Actor.recvMsg<'T> ref
+    let! msg = Operator.recvMsg<'T> ref
     match msg with
     | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
     | OnError e -> Process.onError downstream e      // loop ends → process exits
@@ -326,14 +326,14 @@ Actor model:          spawn(behavior)      → supervision
 The codebase is organized into clean layers with unidirectional dependencies:
 
 ```text
-Process → Agent → Actor → Observable → Channel → Composed Operators
+Process → Agent → Operator → Observable → Channel → Composed Operators
 ```
 
 |   Layer    |                                 Module                                 |                                    Purpose                                     |
 | ---------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Process    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol            |
 | Agent      | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call              |
-| Actor      | `Actor.fs`                                                             | Operator process machinery: selective receive, message loops, operator helpers |
+| Operator   | `Operator.fs`                                                             | Operator process machinery: selective receive, message loops, operator helpers |
 | Observable | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                          |
 | Channel    | `Channel.fs`                                                           | Agent-parameterized channels: push helpers, multicast, singleSubscriber        |
 | Operators  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators built from the above                                        |

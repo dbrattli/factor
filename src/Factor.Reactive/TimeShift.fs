@@ -28,7 +28,7 @@ let timer (delayMs: int) : Observable<int> = {
                             Process.onCompleted downstream
                             Process.exitNormal ())
 
-                    Actor.childLoop ())
+                    Operator.childLoop ())
 
             {
                 Dispose = fun () -> Process.killProcess pid
@@ -57,7 +57,7 @@ let interval (periodMs: int) : Observable<int> = {
                             ()
 
                     tick ()
-                    Actor.childLoop ())
+                    Operator.childLoop ())
 
             {
                 Dispose = fun () -> Process.killProcess pid
@@ -68,7 +68,7 @@ let interval (periodMs: int) : Observable<int> = {
 let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
@@ -77,7 +77,7 @@ let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->
@@ -112,7 +112,7 @@ let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
 let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
@@ -128,7 +128,7 @@ let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->
@@ -165,7 +165,7 @@ let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
 let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
@@ -199,7 +199,7 @@ let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->
@@ -230,7 +230,7 @@ let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
 let timeout (ms: int) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
@@ -258,7 +258,7 @@ let timeout (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->

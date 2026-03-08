@@ -8,7 +8,7 @@ open Factor.Beam
 
 /// Timer-aware sleep: processes pending factor_timer, factor_child,
 /// and EXIT messages for the specified duration.
-let sleep (ms: int) : unit = Actor.processTimers ms
+let sleep (ms: int) : unit = Operator.processTimers ms
 
 /// Simple test result collector using mutable state.
 /// Collects OnNext values, completion status, and errors.

@@ -11,13 +11,13 @@ open Factor.Beam.Agent
 /// Returns an observable whose elements are the result of invoking
 /// the mapper function on each element of the source.
 let map (mapper: 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         Process.onNext downstream (mapper x))
 
 /// Returns an observable whose elements are the result of invoking
 /// the mapper function on each element and its index.
 let mapi (mapper: 'T -> int -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.forNextStateful source 0 (fun downstream index x ->
+    Operator.forNextStateful source 0 (fun downstream index x ->
         Process.onNext downstream (mapper x index)
         index + 1)
 
@@ -97,7 +97,7 @@ let mergeInner (policy: SupervisionPolicy) (maxConcurrency: int option) (source:
                                     inner.Subscribe(innerSelf) |> ignore
 
                                     let rec loop () =
-                                        (Actor.recvMsg<'T> innerRef).Run(fun msg ->
+                                        (Operator.recvMsg<'T> innerRef).Run(fun msg ->
                                             Process.sendChildMsg parentPid childRef (box msg)
 
                                             match msg with
@@ -171,7 +171,7 @@ let mergeInner (policy: SupervisionPolicy) (maxConcurrency: int option) (source:
                     }
 
                     source.Subscribe(outerSelf) |> ignore
-                    Actor.childLoop ())
+                    Operator.childLoop ())
 
             {
                 Dispose = fun () -> Process.killProcess pid
@@ -201,7 +201,7 @@ let concatMapi (mapper: 'T -> int -> Observable<'U>) (source: Observable<'T>) : 
 let switchInner (source: Observable<Observable<'T>>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let outerRef = Process.makeRef ()
 
                 let outerSelf: Observer<Observable<'T>> = {
@@ -213,7 +213,7 @@ let switchInner (source: Observable<Observable<'T>>) : Observable<'T> = {
 
                 let rec loop outerDone currentInnerRef =
                     agent {
-                        let! (ref, rawMsg) = Actor.recvAnyMsg ()
+                        let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
                         if Process.refEquals ref outerRef then
                             match unbox<Msg<Observable<'T>>> rawMsg with
@@ -261,7 +261,7 @@ let switchMapi (mapper: 'T -> int -> Observable<'U>) (source: Observable<'T>) : 
 
 /// Performs a side effect for each emission without transforming.
 let tap (effect: 'T -> unit) (source: Observable<'T>) : Observable<'T> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         effect x
         Process.onNext downstream x)
 
@@ -277,7 +277,7 @@ let startWith (values: 'T list) (source: Observable<'T>) : Observable<'T> = {
 
 /// Emits consecutive pairs of values.
 let pairwise (source: Observable<'T>) : Observable<'T * 'T> =
-    Actor.ofMsgStateful source None (fun downstream prev msg ->
+    Operator.ofMsgStateful source None (fun downstream prev msg ->
         match msg with
         | OnNext x ->
             match prev with
@@ -293,7 +293,7 @@ let pairwise (source: Observable<'T>) : Observable<'T * 'T> =
 
 /// Applies an accumulator function over the source, emitting each intermediate result.
 let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.ofMsgStateful source initial (fun downstream acc msg ->
+    Operator.ofMsgStateful source initial (fun downstream acc msg ->
         match msg with
         | OnNext x ->
             let newAcc = accumulator acc x
@@ -308,7 +308,7 @@ let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : 
 
 /// Applies an accumulator function over the source, emitting only the final value.
 let reduce (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.ofMsgStateful source initial (fun downstream acc msg ->
+    Operator.ofMsgStateful source initial (fun downstream acc msg ->
         match msg with
         | OnNext x -> Some(accumulator acc x)
         | OnError e ->
@@ -328,14 +328,14 @@ let groupBy (keySelector: 'T -> 'K) (source: Observable<'T>) : Observable<'K * O
         fun downstream ->
             let ref = Process.makeRef ()
 
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let channels = Dictionary<'K, Observer<'T>>()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->

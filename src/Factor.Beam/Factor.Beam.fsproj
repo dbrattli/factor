@@ -6,7 +6,7 @@
     <Compile Include="Erlang.fs" />
     <Compile Include="Agent.fs" />
     <Compile Include="Process.fs" />
-    <Compile Include="Actor.fs" />
+    <Compile Include="Operator.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Factor.Agent/Factor.Agent.fsproj" />
