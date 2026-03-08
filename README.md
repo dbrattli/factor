@@ -26,7 +26,7 @@ Process → Actor → Observer/Observable → Channel → Composed Operators
 |     Layer      |                                 Module                                 |                                 Purpose                                 |
 | -------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | **Process**    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol     |
-| **Actor**      | `Agent.fs`                                                             | Typed actor abstraction: `actor { }` CE, spawn, start, send, call       |
+| **Actor**      | `Actor.fs`                                                             | Typed actor abstraction: `actor { }` CE, spawn, start, send, call       |
 | **Observable** | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                   |
 | **Channel**    | `Channel.fs`                                                           | Agent-parameterized channels: multicast, singleSubscriber, push helpers |
 | **Operators**  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators                                                      |
