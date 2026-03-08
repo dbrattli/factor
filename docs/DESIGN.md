@@ -195,13 +195,13 @@ let counterAgent = Agent.start 0 (fun count msg ->
 
 ### What Each Concept Really Is
 
-**Observable<'T> = An Unborn Operator.** An `Observable<'T>` is a blueprint — it describes what an actor will do when subscribed. Nothing happens until `Subscribe` is called. Subscribing IS instantiation.
+**Observable<'T> = An Unborn Actor.** An `Observable<'T>` is a blueprint — it describes what an actor will do when subscribed. Nothing happens until `Subscribe` is called. Subscribing IS instantiation.
 
 **multicast() = A Running Actor's Mailbox.** `multicast()` returns `Observer<'T> * Observable<'T>` — input and output. This is an agent that's already alive (a BEAM process), waiting for messages.
 
 **Rx Operators = Actor Behavior.** Each operator IS a BEAM process. The pipeline between input and output is a tree of linked processes.
 
-**flatMap = Spawn Child Operator.** Each `let!` in `observable { }` spawns a child process. The supervision tree emerges from the pipeline topology.
+**flatMap = Spawn Child Actor.** Each `let!` in `observable { }` spawns a child process. The supervision tree emerges from the pipeline topology.
 
 **subscribe = Actor Instantiation.** Subscribing starts the pipeline running. The returned Handle controls the actor's lifetime.
 
@@ -326,17 +326,16 @@ Actor model:          spawn(behavior)      → supervision
 The codebase is organized into clean layers with unidirectional dependencies:
 
 ```text
-Process → Agent → Operator → Observable → Channel → Composed Operators
+Process → Agent → Observer/Observable → Channel → Composed Operators
 ```
 
-|   Layer    |                                 Module                                 |                                    Purpose                                     |
-| ---------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Process    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol            |
-| Agent      | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call              |
-| Operator   | `Operator.fs`                                                             | Operator process machinery: selective receive, message loops, operator helpers |
-| Observable | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                          |
-| Channel    | `Channel.fs`                                                           | Agent-parameterized channels: push helpers, multicast, singleSubscriber        |
-| Operators  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators built from the above                                        |
+|     Layer      |                                 Module                                 |                                    Purpose                                     |
+| -------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Process        | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol            |
+| Agent          | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call              |
+| Observable     | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                          |
+| Channel        | `Channel.fs`                                                           | Agent-parameterized channels: push helpers, multicast, singleSubscriber        |
+| Operators      | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators built from the above                                        |
 
 ## One Composition Model: Process-Per-Operator
 

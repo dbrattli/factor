@@ -20,23 +20,21 @@ just format   # Format source with Fantomas
 Factor is organized in clean layers, each building on the previous:
 
 ```text
-Process → Agent → Operator → Observer/Observable → Channel → Composed Operators
+Process → Agent → Observer/Observable → Channel → Composed Operators
 ```
 
-| Layer | Module | Purpose |
-|-------|--------|---------|
-| **Process** | `Process.fs` | BEAM primitives: spawn, link, kill, refs, observer message protocol |
-| **Agent** | `Agent.fs` | Typed agent abstraction: `agent { }` CE, spawn, start, send, call |
-| **Operator** | `Operator.fs` | Operator process machinery: selective receive, operator helpers |
-| **Observable** | `Types.fs` | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle` |
-| **Channel** | `Channel.fs` | Agent-parameterized channels: multicast, singleSubscriber, push helpers |
-| **Operators** | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators |
+|     Layer      |                                 Module                                 |                                 Purpose                                 |
+| -------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Process**    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol     |
+| **Agent**      | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call       |
+| **Observable** | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                   |
+| **Channel**    | `Channel.fs`                                                           | Agent-parameterized channels: multicast, singleSubscriber, push helpers |
+| **Operators**  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators                                                      |
 
 Each layer restricts the one below to enable composition:
 
 - **Process** — raw BEAM processes, any message, any sender
 - **Agent** — typed message passing, structured send/call/reply
-- **Operator** — operator-specific selective receive with agent CE loops
 - **Observer/Observable** — Rx grammar (`OnNext* (OnError | OnCompleted)?`), lazy subscribe, process-per-operator
 - **Channel** — agent-parameterized wormholes bridging push and subscribe
 - **Operators** — composed from the above, each spawning a BEAM process
