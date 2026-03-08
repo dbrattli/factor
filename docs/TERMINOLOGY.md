@@ -4,7 +4,7 @@ Quick reference for concepts used throughout Factor. Organized by the layered ar
 
 ## Layer 0: Raw Process (BEAM Process)
 
-- **Pid** — An Erlang process identifier. In Factor, wrapped as `Agent<'Msg>` for type-safe message sending.
+- **Pid** — An Erlang process identifier. In Factor, wrapped as `Actor<'Msg>` for type-safe message sending.
 - **process dictionary** — Per-process mutable key-value store in BEAM. Factor uses it for `factor_children` (child handler registry) and `factor_exits` (exit handler registry). Operators using `mutable` variables compile to process dictionary access.
 - **spawnLinked** — Spawn a new BEAM process linked to the caller. If either process crashes, the other receives an EXIT signal. Foundation for supervision.
 - **trapExits** — Enable `trap_exit` on a process so EXIT signals become messages instead of causing termination. Used by supervisory processes.
@@ -14,20 +14,20 @@ Quick reference for concepts used throughout Factor. Organized by the layered ar
 ### Message Types
 
 - `{factor_child, Ref, Msg}` — Delivers a message from an operator or channel agent to a subscribing process. Dispatched via `factor_children` registry.
-- `{factor_msg, Msg}` — Delivers a message to an agent process. Used by `Agent.send` and channel push helpers.
+- `{factor_msg, Msg}` — Delivers a message to an agent process. Used by `Actor.send` and channel push helpers.
 - `{factor_timer, Ref, Callback}` — Delivers a timer callback. Dispatched via `factor_timer:schedule`.
 - `{'EXIT', Pid, Reason}` — Delivered when a linked process terminates (requires `trap_exit`). Dispatched via `factor_exits` registry.
 
-## Agent Layer
+## Actor Layer
 
-- **Agent\<'Msg\>** — A typed wrapper around a BEAM process Pid. Ensures only correctly-typed messages can be sent via `Agent.send`.
-- **agent { }** — Computation expression for CPS-based selective receive. Provides `let!` to wait for messages. Used internally by operators (via `Operator.recvMsg` and `Operator.recvAnyMsg`) and can be used directly for custom actors.
-- **Agent.start** — Start a stateful agent with a message handler (gen_server style). The handler returns `Continue(newState)` or `Stop`.
-- **Agent.spawn** — Spawn a raw agent process running a body function.
-- **Agent.send** — Fire-and-forget message send to an agent.
-- **Agent.call** — Synchronous request-response. Sends a message with a `ReplyChannel`, blocks until the agent replies.
-- **ReplyChannel\<'Reply\>** — A callback that the receiver uses to send a response back to the caller in `Agent.call`.
-- **Next\<'State\>** — What an agent handler returns: `Continue of 'State` or `Stop`.
+- **Actor\<'Msg\>** — A typed wrapper around a BEAM process Pid. Ensures only correctly-typed messages can be sent via `Actor.send`.
+- **actor { }** — Computation expression for CPS-based selective receive. Provides `let!` to wait for messages. Used internally by operators (via `Operator.recvMsg` and `Operator.recvAnyMsg`) and can be used directly for custom actors.
+- **Actor.start** — Start a stateful actor with a message handler (gen_server style). The handler returns `Continue(newState)` or `Stop`.
+- **Actor.spawn** — Spawn a raw actor process running a body function.
+- **Actor.send** — Fire-and-forget message send to an actor.
+- **Actor.call** — Synchronous request-response. Sends a message with a `ReplyChannel`, blocks until the actor replies.
+- **ReplyChannel\<'Reply\>** — A callback that the receiver uses to send a response back to the caller in `Actor.call`.
+- **Next\<'State\>** — What an actor handler returns: `Continue of 'State` or `Stop`.
 
 ## Layer 1: Observer (Process Endpoint)
 
@@ -37,7 +37,7 @@ Quick reference for concepts used throughout Factor. Organized by the layered ar
 ### Rx Contract
 
 - **Rx grammar** — The legal sequence of messages: `OnNext* (OnError | OnCompleted)?` — zero or more `OnNext`, followed by at most one terminal event.
-- **terminal event** — Either `OnError` or `OnCompleted`. After a terminal event, the operator process exits naturally (the agent CE loop ends without `return! loop`), which cascades through process links to tear down the pipeline. Rx grammar is self-enforced by each operator process — no separate wrapper is needed.
+- **terminal event** — Either `OnError` or `OnCompleted`. After a terminal event, the operator process exits naturally (the actor CE loop ends without `return! loop`), which cascades through process links to tear down the pipeline. Rx grammar is self-enforced by each operator process — no separate wrapper is needed.
 
 ## Layer 2: Observable (Composable Stream)
 
@@ -121,10 +121,10 @@ Quick reference for concepts used throughout Factor. Organized by the layered ar
 ## Bridges Between Layers
 
 - **ChannelMsg\<'T\>** — Protocol messages for channel agents: `Notify of Msg<'T>`, `Subscribe of Observer<'T> * ReplyChannel<unit>`, `Unsubscribe of obj`. Parameterizes channel agent behavior.
-- **channel** — Wraps any `Agent<ChannelMsg<'T>>` into an `Observer<'T> * Observable<'T>` pair. The Observer is the push side, the Observable is the subscribe side. Bridges the Agent layer to the Observable layer.
+- **channel** — Wraps any `Actor<ChannelMsg<'T>>` into an `Observer<'T> * Observable<'T>` pair. The Observer is the push side, the Observable is the subscribe side. Bridges the Actor layer to the Observable layer.
 - **multicast** — Pre-composed multicast channel backed by a stateful agent. Returns `Observer<'T> * Observable<'T>`. Broadcasts to all subscribers, no buffering.
 - **singleSubscriber** — Pre-composed single-subscriber channel with buffering. Returns `Observer<'T> * Observable<'T>`. Messages sent before subscription are buffered and replayed.
-- **pushNext / pushError / pushCompleted** — Send messages into a channel via its Observer push side. Uses `Agent.send` with `ChannelMsg.Notify`.
+- **pushNext / pushError / pushCompleted** — Send messages into a channel via its Observer push side. Uses `Actor.send` with `ChannelMsg.Notify`.
 
 ## Composition
 
@@ -137,7 +137,7 @@ Quick reference for concepts used throughout Factor. Organized by the layered ar
 - **Operator.forNextStateful** — Stateful single-source template (used by mapi, skip, skipWhile, distinctUntilChanged, distinct).
 - **Operator.ofMsgStateful** — Full Msg control with state (used by scan, reduce, take, takeWhile, pairwise, first, last, defaultIfEmpty, takeLast).
 - **Operator.ofMsg2** — Dual-source with state (used by combineLatest, withLatestFrom, zip, takeUntil, sample).
-- **Operator.spawnOp** — Spawn a linked operator process from an agent CE computation, return a dispose Handle.
+- **Operator.spawnOp** — Spawn a linked operator process from an actor CE computation, return a dispose Handle.
 - **Operator.recvMsg** — Selective receive for a single source. Blocks for `{factor_child, Ref, Msg}` while dispatching timers and EXIT signals.
 - **Operator.recvAnyMsg** — Selective receive for any source (multi-source operators).
 - **Operator.childLoop** — Generic message pump for operators without a source to receive from (timer, interval, mergeInner parent).

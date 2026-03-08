@@ -4,12 +4,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Erlang.fs" />
-    <Compile Include="Agent.fs" />
+    <Compile Include="Actor.fs" />
     <Compile Include="Process.fs" />
     <Compile Include="Operator.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Factor.Agent/Factor.Agent.fsproj" />
+    <ProjectReference Include="../Factor.Actor/Factor.Actor.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Core" Version="5.0.0-beta.5" />

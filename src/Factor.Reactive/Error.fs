@@ -3,9 +3,9 @@
 /// Every operator spawns a BEAM process. The pipeline IS the supervision tree.
 module Factor.Reactive.Error
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 
 /// Resubscribes to the source observable when an error occurs,
 /// up to the specified number of retries.
@@ -19,7 +19,7 @@ let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
                     source.Subscribe upstream |> ignore
 
                     let rec loop () =
-                        agent {
+                        actor {
                             let! msg = Operator.recvMsg<'T> ref
 
                             match msg with
@@ -49,7 +49,7 @@ let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Obser
                 source.Subscribe(upstream) |> ignore
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
@@ -68,7 +68,7 @@ let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Obser
                             fallback.Subscribe fallbackUpstream |> ignore
 
                             let rec innerLoop () =
-                                agent {
+                                actor {
                                     let! innerMsg = Operator.recvMsg<'T> fallbackRef
 
                                     match innerMsg with

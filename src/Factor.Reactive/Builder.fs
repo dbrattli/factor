@@ -5,7 +5,7 @@
 /// spawns child processes creating supervision boundaries.
 module Factor.Reactive.Builder
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 
 /// Bind an observable to a continuation function.
 /// Uses flatMap — each inner runs in a spawned linked child process.

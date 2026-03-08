@@ -2,13 +2,13 @@
 ///
 /// Shows the wire format for cross-language actor communication:
 ///   - F# DU cases compile to Erlang tagged tuples: HelloFrom → {hello_from, ...}
-///   - Agent.send wraps in {factor_msg, Msg} envelope
+///   - Actor.send wraps in {factor_msg, Msg} envelope
 ///   - ReplyChannel compiles to #{reply => fun(V) -> ... end}
 ///   - Raw Erlang sends bypass the envelope
 module InteropExample
 
 open Fable.Core
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 // --- Erlang FFI helpers ---
@@ -32,8 +32,8 @@ type DagMsg =
 // --- Dag: the F# actor ---
 
 /// Start Dag. He keeps Joe's raw pid as state so he can reply.
-let startDag (joePid: obj) : Agent<DagMsg> =
-    Agent.start joePid (fun joePid msg ->
+let startDag (joePid: obj) : Actor<DagMsg> =
+    Actor.start joePid (fun joePid msg ->
         match msg with
         | HelloFrom name ->
             printfmt "  [Dag/F#]     Received hello from ~s~n" [ name ]

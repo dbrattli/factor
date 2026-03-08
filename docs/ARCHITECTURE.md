@@ -18,7 +18,7 @@ Observable (source) → Operator (process) → Operator (process) → Observer (
 
 ## Core Types
 
-All core types are defined in `src/Factor.Agent/Types.fs` (`Factor.Agent.Types` module):
+All core types are defined in `src/Factor.Actor/Types.fs` (`Factor.Actor.Types` module):
 
 ### Msg
 
@@ -68,7 +68,7 @@ type ChannelMsg<'T> =
     | Unsubscribe of obj
 ```
 
-Push uses `{factor_msg, ...}` protocol (Agent.send), subscribe uses `Agent.call` for synchronous ack, unsubscribe uses `Agent.send`.
+Push uses `{factor_msg, ...}` protocol (Actor.send), subscribe uses `Actor.call` for synchronous ack, unsubscribe uses `Actor.send`.
 
 ### SupervisionPolicy
 
@@ -89,13 +89,13 @@ Factor enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 - At most one terminal event (`OnError` or `OnCompleted`)
 - No events after a terminal event
 
-Enforcement is structural: each operator process exits when its agent CE loop ends (no `return! loop` on terminal events). Process exit cascades via BEAM links — no wrapper needed.
+Enforcement is structural: each operator process exits when its actor CE loop ends (no `return! loop` on terminal events). Process exit cascades via BEAM links — no wrapper needed.
 
 ```fsharp
 // Terminal event handling in every operator:
-// The agent CE loop simply doesn't recurse — process exits naturally
+// The actor CE loop simply doesn't recurse — process exits naturally
 let rec loop () =
-    agent {
+    actor {
         let! msg = Operator.recvMsg<'T> ref
         match msg with
         | OnNext x ->
@@ -171,17 +171,17 @@ If any operator process crashes, the EXIT signal propagates up through the linke
 Factor is organized into three F# projects with clean dependencies:
 
 ```text
-Factor.Reactive  →  Factor.Beam  →  Factor.Agent
+Factor.Reactive  →  Factor.Beam  →  Factor.Actor
   (operators)       (BEAM impl)     (abstract types)
 ```
 
-### Factor.Agent — Abstract Types
+### Factor.Actor — Abstract Types
 
 Cross-platform contract. No platform code, no dependencies beyond Fable.Core.
 
 ```text
-src/Factor.Agent/
-└── Types.fs          # Agent, Observer, Observable, Msg, Handle, ChannelMsg,
+src/Factor.Actor/
+└── Types.fs          # Actor, Observer, Observable, Msg, Handle, ChannelMsg,
                       # ReplyChannel, Next, SupervisionPolicy, exceptions
 ```
 
@@ -193,7 +193,7 @@ Layered from primitives to operator machinery:
 src/Factor.Beam/
 ├── Erlang.fs         # Raw Erlang FFI (receive, monotonicTime)
 ├── Process.fs        # BEAM process primitives + observer message protocol
-├── Agent.fs          # Agent CE (agent { }), spawn, start, send, call
+├── Agent.fs          # Actor CE (actor { }), spawn, start, send, call
 ├── Operator.fs       # Operator process machinery: selective receive,
 │                     #   message loops, composable operator helpers
 │                     #   (forNext, forNextStateful, ofMsgStateful, ofMsg2)
@@ -208,10 +208,10 @@ src/Factor.Beam/
 - `exitNormal`, `formatReason`, `refEquals`
 - Observer helpers: `notify`, `onNext`, `onError`, `onCompleted`
 
-**Agent.fs** — Typed agent abstraction:
-- `agent { }` CE with `let!` for selective receive
-- `spawn` — raw CPS agent with typed Pid
-- `start` — stateful agent with message handler
+**Agent.fs** — Typed actor abstraction:
+- `actor { }` CE with `let!` for selective receive
+- `spawn` — raw CPS actor with typed Pid
+- `start` — stateful actor with message handler
 - `send` — async message send
 - `call` — synchronous request-response
 
@@ -220,7 +220,7 @@ src/Factor.Beam/
 - `processTimers` — timed message pump for tests
 - `recvMsg<'T>` — selective receive for single-source operators
 - `recvAnyMsg` — selective receive for multi-source operators
-- `spawnOp` — spawn linked operator process from agent CE
+- `spawnOp` — spawn linked operator process from actor CE
 - `forNext`, `forNextStateful`, `ofMsgStateful`, `ofMsg2` — composable operator templates
 
 ### Factor.Reactive — Rx Operators
@@ -229,7 +229,7 @@ All operators, channels, and the public API facade:
 
 ```text
 src/Factor.Reactive/
-├── Types.fs          # Re-exports from Factor.Agent.Types
+├── Types.fs          # Re-exports from Factor.Actor.Types
 ├── Channel.fs        # Channels: push helpers, channel, multicast, singleSubscriber,
 │                     #   publish, share
 ├── Create.fs         # Creation: create, single, empty, never, fail, ofList, defer
@@ -250,12 +250,12 @@ Every operator in Factor spawns a dedicated BEAM process via `Process.spawnLinke
 
 ### How It Works
 
-Most operators use the agent CE pattern with selective receive:
+Most operators use the actor CE pattern with selective receive:
 
 1. `spawnOp` spawns a linked child process
 2. The child creates a `Ref` and an `Observer<'T>` endpoint
 3. The child subscribes to its source
-4. The child enters a recursive `agent { }` CE loop using `recvMsg` or `recvAnyMsg`
+4. The child enters a recursive `actor { }` CE loop using `recvMsg` or `recvAnyMsg`
 5. On terminal events, the loop ends — the process exits naturally
 
 ### Operator Helpers
@@ -267,7 +267,7 @@ Operators are built from composable templates in `Operator.fs`:
 - **`ofMsgStateful`** — full Msg control with state (scan, reduce, take, takeWhile, pairwise, first, last, defaultIfEmpty, takeLast)
 - **`ofMsg2`** — dual-source with state (combineLatest, withLatestFrom, zip, takeUntil, sample)
 
-Complex operators (mergeInner, switchInner, amb, forkJoin, groupBy, delay, debounce, throttle, timeout) use `spawnOp` + `recvMsg`/`recvAnyMsg` directly with custom agent CE loops.
+Complex operators (mergeInner, switchInner, amb, forkJoin, groupBy, delay, debounce, throttle, timeout) use `spawnOp` + `recvMsg`/`recvAnyMsg` directly with custom actor CE loops.
 
 ### Benefits
 
@@ -303,7 +303,7 @@ Producer ──{factor_msg, {notify, Msg}}──► Channel Agent ──{factor_
 Each operator's mutable state lives in its own spawned process. On BEAM (via Fable.Beam), mutable variables compile to process dictionary operations, which are inherently process-local. Since every operator is its own process, there are no shared-state concerns between operators.
 
 ```fsharp
-// scan operator — accumulator is recursive loop state in the agent CE
+// scan operator — accumulator is recursive loop state in the actor CE
 let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
     Operator.ofMsgStateful source initial (fun downstream acc msg ->
         match msg with
@@ -321,7 +321,7 @@ let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : 
 
 ### Channel Agents (Cross-Process Multicast)
 
-Channels are backed by `Agent<ChannelMsg<'T>>` — stateful agents that manage subscriber lists via message passing. Each channel agent handles three message types: `Notify` (broadcast to subscribers), `Subscribe` (add subscriber with synchronous ack), and `Unsubscribe` (remove subscriber).
+Channels are backed by `Actor<ChannelMsg<'T>>` — stateful agents that manage subscriber lists via message passing. Each channel agent handles three message types: `Notify` (broadcast to subscribers), `Subscribe` (add subscriber with synchronous ack), and `Unsubscribe` (remove subscriber).
 
 Pre-composed channels:
 - **`multicast()`** — broadcasts to all subscribers, no buffering
@@ -329,9 +329,9 @@ Pre-composed channels:
 
 ## Operator Patterns
 
-### Standard Operator Pattern (agent CE)
+### Standard Operator Pattern (actor CE)
 
-Most operators use operator helpers that encapsulate the `spawnOp` + `recvMsg` + agent CE pattern:
+Most operators use operator helpers that encapsulate the `spawnOp` + `recvMsg` + actor CE pattern:
 
 ```fsharp
 let map (mapper: 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
@@ -348,7 +348,7 @@ spawnOp (fun () ->
     source.Subscribe(upstream) |> ignore
 
     let rec loop () =
-        agent {
+        actor {
             let! msg = recvMsg<'T> ref
             match msg with
             | OnNext x ->
@@ -413,8 +413,8 @@ Channels bridge the gap between agents and observables — they're "wormholes" p
 ### How Channels Work
 
 ```fsharp
-// Low-level: wrap any Agent<ChannelMsg<'T>>
-let channel (agent: Agent<ChannelMsg<'T>>) : Observer<'T> * Observable<'T>
+// Low-level: wrap any Actor<ChannelMsg<'T>>
+let channel (agent: Actor<ChannelMsg<'T>>) : Observer<'T> * Observable<'T>
 
 // Pre-composed
 let multicast<'T> () : Observer<'T> * Observable<'T>
@@ -425,10 +425,10 @@ The push side returns `Observer<'T>` (same type as downstream endpoints). Push h
 
 ```fsharp
 let pushNext (observer: Observer<'T>) (value: 'T) : unit =
-    Agent.send { Pid = observer.Pid } (Notify(OnNext value))
+    Actor.send { Pid = observer.Pid } (Notify(OnNext value))
 ```
 
-Subscribe uses `Agent.call` for synchronous ack, preventing races between subscribing and the first send.
+Subscribe uses `Actor.call` for synchronous ack, preventing races between subscribing and the first send.
 
 ### publish / share
 
@@ -506,16 +506,16 @@ let example =
 
 Since every operator already spawns a process, `let!` using `flatMap` is consistent with the rest of the framework. Each binding creates a linked child process for the inner observable, forming a supervision sub-tree.
 
-### `agent { ... }` — CPS-based actors
+### `actor { ... }` — CPS-based actors
 
 For message-passing actors with typed Pids and selective receive:
 
 ```fsharp
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 
 let pid = spawn (fun () ->
     let rec loop () =
-        agent {
+        actor {
             let! msg = recv ()
             // handle msg
             return! loop ()
@@ -535,7 +535,7 @@ Process crashes in child processes are caught by exit monitors (when `trapExits`
 1. **Laziness**: Observables don't execute until subscribed
 2. **Composability**: Small operators compose into complex pipelines
 3. **Process Isolation**: Every operator is a BEAM process. Mutable state is always process-local and never shared. The pipeline structure IS the supervision hierarchy
-4. **Rx Contract**: Operator processes self-enforce the grammar by exiting when the agent CE loop ends on terminal events
+4. **Rx Contract**: Operator processes self-enforce the grammar by exiting when the actor CE loop ends on terminal events
 5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for lightweight processes and fault tolerance
 6. **Resource Safety**: Handles kill operator processes; EXIT signals propagate through the linked tree for automatic cleanup
-7. **Layered Architecture**: Process → Agent → Observer/Observable → Channel → Composed operators
+7. **Layered Architecture**: Process → Actor → Observer/Observable → Channel → Composed operators

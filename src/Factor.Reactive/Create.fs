@@ -6,7 +6,7 @@
 /// BEAM mailbox buffering handles the sync-to-async transition.
 module Factor.Reactive.Create
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 /// Create an observable from a subscribe function.

@@ -20,13 +20,13 @@ just format   # Format source with Fantomas
 Factor is organized in clean layers, each building on the previous:
 
 ```text
-Process → Agent → Observer/Observable → Channel → Composed Operators
+Process → Actor → Observer/Observable → Channel → Composed Operators
 ```
 
 |     Layer      |                                 Module                                 |                                 Purpose                                 |
 | -------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | **Process**    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol     |
-| **Agent**      | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call       |
+| **Actor**      | `Agent.fs`                                                             | Typed actor abstraction: `actor { }` CE, spawn, start, send, call       |
 | **Observable** | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                   |
 | **Channel**    | `Channel.fs`                                                           | Agent-parameterized channels: multicast, singleSubscriber, push helpers |
 | **Operators**  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators                                                      |
@@ -34,7 +34,7 @@ Process → Agent → Observer/Observable → Channel → Composed Operators
 Each layer restricts the one below to enable composition:
 
 - **Process** — raw BEAM processes, any message, any sender
-- **Agent** — typed message passing, structured send/call/reply
+- **Actor** — typed message passing, structured send/call/reply
 - **Observer/Observable** — Rx grammar (`OnNext* (OnError | OnCompleted)?`), lazy subscribe, process-per-operator
 - **Channel** — agent-parameterized wormholes bridging push and subscribe
 - **Operators** — composed from the above, each spawning a BEAM process
@@ -42,7 +42,7 @@ Each layer restricts the one below to enable composition:
 ## Example
 
 ```fsharp
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 
 // Create a pipeline — each operator spawns a BEAM process
@@ -75,7 +75,7 @@ Factor provides two computation expressions for different concurrency patterns.
 The `observable` CE composes reactive observables with supervision. Each `let!` desugars to `flatMap`, which spawns a linked child process per inner observable.
 
 ```fsharp
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.Reactive.Builder
 
@@ -108,38 +108,38 @@ let pipeline =
 
 **CE constraint:** All operator callbacks run in spawned processes. Capture only immutable values and agent-based channels — do not reference mutable state from outer scopes.
 
-### `agent { ... }` — Typed Agents
+### `actor { ... }` — Typed Actors
 
-The `agent` CE provides typed message-passing actors. `Agent.start` creates a stateful agent with a message handler (gen_server style). `Agent.spawn` creates a raw agent process.
+The `actor` CE provides typed message-passing actors. `Actor.start` creates a stateful actor with a message handler (gen_server style). `Actor.spawn` creates a raw actor process.
 
 ```fsharp
-open Factor.Agent.Types
-open Factor.Beam.Agent
+open Factor.Actor.Types
+open Factor.Beam.Actor
 
 type CounterMsg =
     | Increment
     | GetCount of ReplyChannel<int>
 
-let counter = Agent.start 0 (fun count msg ->
+let counter = Actor.start 0 (fun count msg ->
     match msg with
     | Increment -> Continue (count + 1)
     | GetCount rc ->
         rc.Reply count
         Continue count)
 
-Agent.send counter Increment
-Agent.send counter Increment
-let count = Agent.call counter (fun rc -> GetCount rc)
+Actor.send counter Increment
+Actor.send counter Increment
+let count = Actor.call counter (fun rc -> GetCount rc)
 // count = 2
 ```
 
 Key features:
 
-- **Typed Agents** — `Agent<'Msg>` ensures only correctly-typed messages can be sent
-- **`Agent.start`** — stateful agent with message handler loop
-- **`Agent.spawn`** — raw agent process
-- **`Agent.send`** — fire-and-forget message send
-- **`Agent.call`** — synchronous request-response with `ReplyChannel`
+- **Typed Actors** — `Actor<'Msg>` ensures only correctly-typed messages can be sent
+- **`Actor.start`** — stateful actor with message handler loop
+- **`Actor.spawn`** — raw actor process
+- **`Actor.send`** — fire-and-forget message send
+- **`Actor.call`** — synchronous request-response with `ReplyChannel`
 
 ## Error Handling
 
@@ -172,7 +172,7 @@ source
 Factor provides time-based operators for async scenarios. These use native Erlang `erlang:send_after` via the `factor_timer` module, ensuring callbacks execute in the operator's process context.
 
 ```fsharp
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 
 // Emit 0, 1, 2, ... every 100ms, take first 5
@@ -195,10 +195,10 @@ let handle =
 
 ### Channel Example
 
-Channels separate the push side (`Observer<'T>`) from the subscribe side (`Observable<'T>`). Each channel is backed by an `Agent<ChannelMsg<'T>>` that manages subscribers via message passing.
+Channels separate the push side (`Observer<'T>`) from the subscribe side (`Observable<'T>`). Each channel is backed by an `Actor<ChannelMsg<'T>>` that manages subscribers via message passing.
 
 ```fsharp
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 
 let observer, output = Reactive.multicast ()
@@ -311,7 +311,7 @@ A `Handle` represents a subscription that can be cancelled. Call `Dispose()` to 
 | --------------------------- | ------------------------------------------------------- |
 | `multicast ()`              | Returns `Observer<'T> * Observable<'T>`, multicast channel agent |
 | `singleSubscriber ()`       | Returns `Observer<'T> * Observable<'T>`, single-subscriber with buffering |
-| `channel agent`             | Wrap any `Agent<ChannelMsg<'T>>` into Observer + Observable |
+| `channel agent`             | Wrap any `Actor<ChannelMsg<'T>>` into Observer + Observable |
 | `publish source`            | Connectable hot observable, call connect() to start     |
 | `share source`              | Auto-connecting multicast, refCount semantics           |
 
@@ -346,14 +346,14 @@ A `Handle` represents a subscription that can be cancelled. Call `Dispose()` to 
 | `return! source`          | Return from observable                           |
 | `for x in list do`        | Iterate list, concat results                     |
 
-### Agent (`Agent.start`, `Agent.spawn`)
+### Actor (`Actor.start`, `Actor.spawn`)
 
 |         Function                          |                   Description                    |
 | ----------------------------------------- | ------------------------------------------------ |
-| `Agent.start initialState handler`        | Start a stateful agent with message handler      |
-| `Agent.spawn body`                        | Spawn a raw BEAM process as an agent             |
-| `Agent.send agent msg`                    | Send a typed message (fire and forget)           |
-| `Agent.call agent msgFactory`             | Synchronous request-response with ReplyChannel   |
+| `Actor.start initialState handler`        | Start a stateful actor with message handler      |
+| `Actor.spawn body`                        | Spawn a raw BEAM process as an actor             |
+| `Actor.send agent msg`                    | Send a typed message (fire and forget)           |
+| `Actor.call agent msgFactory`             | Synchronous request-response with ReplyChannel   |
 
 ## Design
 
@@ -384,7 +384,7 @@ observable {
 
 ### Operator Implementation
 
-Operators use composable helpers built on the `agent { }` CE with selective receive. Most operators are one-liners using templates like `forNext`, `forNextStateful`, `ofMsgStateful`, and `ofMsg2`:
+Operators use composable helpers built on the `actor { }` CE with selective receive. Most operators are one-liners using templates like `forNext`, `forNextStateful`, `ofMsgStateful`, and `ofMsg2`:
 
 ```fsharp
 // map — stateless single-source (uses forNext template)
@@ -404,13 +404,13 @@ let scan initial accumulator source =
         | OnCompleted -> Process.onCompleted downstream; None)
 ```
 
-Complex operators use `Operator.spawnOp` + `Operator.recvMsg`/`Operator.recvAnyMsg` directly with custom agent CE loops.
+Complex operators use `Operator.spawnOp` + `Operator.recvMsg`/`Operator.recvAnyMsg` directly with custom actor CE loops.
 
 ### Channel Agents
 
-Each channel is backed by an `Agent<ChannelMsg<'T>>` — a stateful agent that manages subscribers. `multicast()` broadcasts to all subscribers. `singleSubscriber()` buffers messages until a subscriber connects.
+Each channel is backed by an `Actor<ChannelMsg<'T>>` — a stateful agent that manages subscribers. `multicast()` broadcasts to all subscribers. `singleSubscriber()` buffers messages until a subscriber connects.
 
-Subscribe uses `Agent.call` for synchronous ack to prevent races between subscribing and first send. Push uses `Agent.send` with the `ChannelMsg.Notify` protocol.
+Subscribe uses `Actor.call` for synchronous ack to prevent races between subscribing and first send. Push uses `Actor.send` with the `ChannelMsg.Notify` protocol.
 
 ### Compositional Design
 

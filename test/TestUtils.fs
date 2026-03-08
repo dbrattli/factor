@@ -3,7 +3,7 @@
 /// Provides test collectors, assertion helpers, and sleep FFI.
 module Factor.TestUtils
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 /// Timer-aware sleep: processes pending factor_timer, factor_child,

@@ -1,4 +1,4 @@
-# Agent Interop Design Document
+# Actor Interop Design Document
 
 This document describes the design for bridging BEAM agents/processes with reactive streams in Factor.
 
@@ -32,7 +32,7 @@ let tapSend (send: 'a -> unit) (source: Observable<'a>) : Observable<'a>
 interval 100
 |> take 10
 |> map (fun n -> Increment n)
-|> tapSend (fun msg -> Agent.send counterAgent msg)
+|> tapSend (fun msg -> Actor.send counterAgent msg)
 |> subscribe logObserver
 ```
 
@@ -78,7 +78,7 @@ messages
 
 ### Agent-Based Channels
 
-Channels are parameterized by `Agent<ChannelMsg<'T>>`, making them composable and extensible. Pre-composed channels (`multicast`, `singleSubscriber`) handle common patterns. Custom channel behavior can be implemented by providing a custom agent handler.
+Channels are parameterized by `Actor<ChannelMsg<'T>>`, making them composable and extensible. Pre-composed channels (`multicast`, `singleSubscriber`) handle common patterns. Custom channel behavior can be implemented by providing a custom agent handler.
 
 ### Backpressure Considerations
 
@@ -87,7 +87,7 @@ BEAM actor mailboxes are unbounded, matching Rx's push semantics. For high-volum
 ```fsharp
 highVolumeStream
 |> throttle 100      // At most 10 messages/second
-|> tapSend (fun msg -> Agent.send target msg)
+|> tapSend (fun msg -> Actor.send target msg)
 ```
 
 ## File Structure

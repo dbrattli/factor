@@ -1,9 +1,9 @@
-/// Agent interop for Factor.Reactive
+/// Actor interop for Factor.Reactive
 ///
 /// Bridges BEAM processes with reactive streams.
 module Factor.Reactive.Interop
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 /// Sends each emitted value as a side effect while passing through to downstream.

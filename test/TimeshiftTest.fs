@@ -5,7 +5,7 @@
 /// rely on the Fable.Beam mutable state mechanism working across processes.
 module Factor.TimeshiftTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

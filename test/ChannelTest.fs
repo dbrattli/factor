@@ -1,7 +1,7 @@
 /// Tests for channel module
 module Factor.ChannelTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

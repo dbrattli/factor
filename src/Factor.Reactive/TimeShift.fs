@@ -4,9 +4,9 @@
 /// in the operator's process via factor_timer scheduling.
 module Factor.Reactive.TimeShift
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 open Fable.Core
 
 // Erlang FFI for timer operations using factor_timer module.
@@ -76,7 +76,7 @@ let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
                 let mutable sourceCompleted = false
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
@@ -127,7 +127,7 @@ let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
                     | None -> ()
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
@@ -198,7 +198,7 @@ let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
                         currentTimer <- Some t
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
@@ -257,7 +257,7 @@ let timeout (ms: int) (source: Observable<'T>) : Observable<'T> = {
                 startTimer ()
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with

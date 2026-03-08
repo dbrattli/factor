@@ -1,7 +1,7 @@
 /// Tests for supervision policies in mergeInner
 module Factor.SupervisionTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 open Factor.Reactive
 open Factor.TestUtils

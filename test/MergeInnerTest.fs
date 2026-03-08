@@ -1,7 +1,7 @@
 /// Tests for mergeInner, concatInner, and related operators
 module Factor.MergeInnerTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 
