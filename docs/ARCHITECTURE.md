@@ -538,4 +538,4 @@ Process crashes in child processes are caught by exit monitors (when `trapExits`
 4. **Rx Contract**: Operator processes self-enforce the grammar by exiting when the agent CE loop ends on terminal events
 5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for lightweight processes and fault tolerance
 6. **Resource Safety**: Handles kill operator processes; EXIT signals propagate through the linked tree for automatic cleanup
-7. **Layered Architecture**: Process → Agent → Operator → Observable → Channel → Composed operators
+7. **Layered Architecture**: Process → Agent → Observer/Observable → Channel → Composed operators

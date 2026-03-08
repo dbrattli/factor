@@ -29,7 +29,7 @@ Fable.Beam compiler is expected at `../fable/fable-beam/src/Fable.Cli`.
 ## Architecture
 
 ```text
-Process → Agent → Operator → Observer/Observable → Channel → Composed Operators
+Process → Agent → Observer/Observable → Channel → Composed Operators
 ```
 
 Three F# projects with clean dependencies: `Factor.Reactive → Factor.Beam → Factor.Agent`
