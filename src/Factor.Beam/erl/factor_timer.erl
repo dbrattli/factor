@@ -38,7 +38,8 @@ process_timers(TimeoutMs) ->
 process_timers_loop(EndTime) ->
     Remaining = EndTime - erlang:monotonic_time(millisecond),
     case Remaining =< 0 of
-        true -> ok;
+        true ->
+            ok;
         false ->
             receive
                 {factor_timer, _Ref, Callback} ->
@@ -47,7 +48,8 @@ process_timers_loop(EndTime) ->
                 {factor_child, Ref, Notification} ->
                     %% Registry-based dispatching: look up handler by ref
                     case get(factor_children) of
-                        undefined -> ok;
+                        undefined ->
+                            ok;
                         Map ->
                             case Map of
                                 #{Ref := Handler} ->
@@ -61,10 +63,12 @@ process_timers_loop(EndTime) ->
                     %% Registry-based dispatching: look up handler by pid
                     %% Normal exits are filtered (child completed successfully)
                     case Reason of
-                        normal -> ok;
+                        normal ->
+                            ok;
                         _ ->
                             case get(factor_exits) of
-                                undefined -> ok;
+                                undefined ->
+                                    ok;
                                 Map ->
                                     case Map of
                                         #{Pid := Handler} ->

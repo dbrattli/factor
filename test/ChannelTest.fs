@@ -1,17 +1,17 @@
 /// Tests for channel module
 module Factor.ChannelTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 
 // ============================================================================
-// singleChannel tests
+// singleSubscriber tests
 // ============================================================================
 
 let single_channel_forwards_values_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
     output |> Reactive.spawn tc.Observer |> ignore
 
     Reactive.pushNext input 1
@@ -25,7 +25,7 @@ let single_channel_forwards_values_test () =
     shouldEqual [] tc.Errors
 
 let single_channel_buffers_before_subscribe_test () =
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
 
     // Send values BEFORE subscribing
     Reactive.pushNext input 10
@@ -47,7 +47,7 @@ let single_channel_buffers_before_subscribe_test () =
 
 let single_channel_forwards_errors_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
     output |> Reactive.spawn tc.Observer |> ignore
 
     Reactive.pushNext input 1
@@ -59,7 +59,7 @@ let single_channel_forwards_errors_test () =
 
 let single_channel_dispose_stops_forwarding_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
     let disp = output |> Reactive.spawn tc.Observer
 
     Reactive.pushNext input 1
@@ -76,7 +76,7 @@ let single_channel_dispose_stops_forwarding_test () =
 
 let single_channel_with_facade_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
     output |> Reactive.spawn tc.Observer |> ignore
 
     Reactive.pushNext input 42
@@ -88,7 +88,7 @@ let single_channel_with_facade_test () =
 
 let single_channel_works_with_map_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
 
     output
     |> Reactive.map (fun x -> x * 2)
@@ -106,7 +106,7 @@ let single_channel_works_with_map_test () =
 
 let single_channel_works_with_filter_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.singleChannel ()
+    let input, output = Reactive.singleSubscriber ()
 
     output
     |> Reactive.filter (fun x -> x > 2)
@@ -129,7 +129,7 @@ let single_channel_works_with_filter_test () =
 
 let channel_forwards_values_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
     output |> Reactive.spawn tc.Observer |> ignore
 
     Reactive.pushNext input 1
@@ -145,7 +145,7 @@ let channel_forwards_values_test () =
 let channel_allows_multiple_subscribers_test () =
     let tc1 = TestCollector<int>()
     let tc2 = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
 
     output |> Reactive.spawn tc1.Observer |> ignore
     output |> Reactive.spawn tc2.Observer |> ignore
@@ -160,7 +160,7 @@ let channel_allows_multiple_subscribers_test () =
     shouldBeTrue tc2.Completed
 
 let channel_does_not_buffer_test () =
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
 
     // Send values BEFORE subscribing
     Reactive.pushNext input 10
@@ -183,7 +183,7 @@ let channel_does_not_buffer_test () =
 
 let channel_dispose_stops_receiving_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
     let disp = output |> Reactive.spawn tc.Observer
 
     Reactive.pushNext input 1
@@ -200,7 +200,7 @@ let channel_dispose_stops_receiving_test () =
 
 let channel_with_facade_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
     output |> Reactive.spawn tc.Observer |> ignore
 
     Reactive.pushNext input 42

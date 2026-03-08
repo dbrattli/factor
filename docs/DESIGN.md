@@ -9,7 +9,7 @@ This approach is closest to Prokopec and Odersky's *Reactors* (2015), which iden
 ## The Three Layers
 
 ```text
-Layer 2: Factor<'T>         ← Observable-Actor (spawnable, composable, process-per-operator)
+Layer 2: Observable<'T>     ← Observable-Actor (subscribable, composable, process-per-operator)
          ↑ wraps
 Layer 1: Observer<'T>       ← Observer-Actor (Rx grammar, process endpoint)
          ↑ restricts
@@ -27,13 +27,12 @@ The unconstrained foundation.
 - **Composability**: None — manual wiring, no guarantees
 
 ```fsharp
-// Layer 0: raw BEAM actor primitives (Process.fs, Actor.fs)
-let pid = spawnLinked (fun () -> ...)
-send pid anyMessage
+// Layer 0: raw BEAM actor primitives (Process.fs, Agent.fs)
+let pid = Process.spawnLinked (fun () -> ...)
 
-// The actor { } CE lives here — CPS receive loop
-actor {
-    let! msg = ctx.Recv()
+// The agent { } CE lives here — CPS selective receive
+agent {
+    let! msg = recv ()
     // handle msg...
 }
 ```
@@ -44,7 +43,7 @@ Restricts the message vocabulary and sequencing.
 
 - **Messages**: Only `Msg<'T>` — `OnNext`, `OnError`, `OnCompleted`
 - **Protocol**: Rx grammar `OnNext* (OnError | OnCompleted)?`
-- **Enforcement**: Each operator process self-enforces the grammar — when the actor CE computation ends (no `return! loop`), the process exits naturally. Process exit cascades via BEAM links — no wrapper needed.
+- **Enforcement**: Each operator process self-enforces the grammar — when the agent CE loop ends (no `return! loop`), the process exits naturally. Process exit cascades via BEAM links — no wrapper needed.
 - **Composability**: Partial — observers can be manually chained, but wiring is still imperative
 
 ```fsharp
@@ -53,9 +52,9 @@ type Msg<'T> = OnNext of 'T | OnError of exn | OnCompleted
 type Observer<'T> = { Pid: obj; Ref: obj }  // process endpoint, not a callback
 
 // Rx grammar enforced by process termination:
-// Terminal events end the actor loop — process exits, links cascade
-let rec loop () = actor {
-    let! msg = Process.recvMsg<'T> ref
+// Terminal events end the agent loop — process exits, links cascade
+let rec loop () = agent {
+    let! msg = Actor.recvMsg<'T> ref
     match msg with
     | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
     | OnError e -> Process.onError downstream e          // no loop → exits
@@ -65,37 +64,37 @@ let rec loop () = actor {
 
 **What this gains**: Because the protocol is fixed and known, generic transformations become possible. A `map` function can exist because there are exactly three message types. Because each operator is a process, terminal events naturally cascade through BEAM links — no centralized grammar enforcement is needed.
 
-### Layer 2: Observable-Actor (Factor)
+### Layer 2: Observable-Actor (Observable)
 
-Wraps the observer-actor in a spawn function — controls WHO sends. Every operator spawns a BEAM process.
+Wraps the observer-actor in a subscribe function — controls WHO sends. Every operator spawns a BEAM process.
 
-- **Sending**: Only the upstream source (via spawning), not arbitrary senders
-- **Lifecycle**: Lazy — nothing happens until spawned. Handle controls lifetime.
+- **Sending**: Only the upstream source (via subscribing), not arbitrary senders
+- **Lifecycle**: Lazy — nothing happens until subscribed. Handle controls lifetime.
 - **Composability**: Full — operator algebra (`map`, `filter`, `flatMap`, `merge`, etc.)
 - **Process-per-operator**: Each operator in the pipeline is its own BEAM process, linked to its downstream. The pipeline IS the supervision tree at every level.
 
 ```fsharp
-// Layer 2: spawnable, composable wrapper (Types.fs)
-type Factor<'T> = { Spawn: Observer<'T> -> Handle }
+// Layer 2: subscribable, composable wrapper (Types.fs)
+type Observable<'T> = { Subscribe: Observer<'T> -> Handle }
 
-// Every operator spawns a BEAM process using the actor CE
-let map (mapper: 'T -> 'U) (source: Factor<'T>) : Factor<'U> =
-    { Spawn = fun downstream ->
-        let ref = Process.makeRef ()
-        Process.spawnOp (fun () ->
-            let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-            source.Spawn upstream |> ignore
+// Every operator spawns a BEAM process using the agent CE
+let map (mapper: 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
+    Actor.forNext source (fun downstream x ->
+        Process.onNext downstream (mapper x))
 
-            let rec loop () = actor {
-                let! msg = Process.recvMsg<'T> ref
-                match msg with
-                | OnNext x ->
-                    Process.onNext downstream (mapper x)
-                    return! loop ()
-                | OnError e -> Process.onError downstream e
-                | OnCompleted -> Process.onCompleted downstream
-            }
-            loop ()) }
+// Under the hood, forNext does:
+// { Subscribe = fun downstream ->
+//     Actor.spawnOp (fun () ->
+//         let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
+//         source.Subscribe(upstream) |> ignore
+//         let rec loop () = agent {
+//             let! msg = Actor.recvMsg<'T> ref
+//             match msg with
+//             | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
+//             | OnError e -> Process.onError downstream e
+//             | OnCompleted -> Process.onCompleted downstream
+//         }
+//         loop ()) }
 ```
 
 **What this gains**: Because every operator is a process, the pipeline topology IS the BEAM process tree. Killing any process cascades via links. There is no separate "supervision" concern — the pipeline structure provides it inherently.
@@ -108,7 +107,7 @@ Each layer constrains the raw actor model, and each constraint enables compositi
 Raw BEAM actor → any message, any sender, any time     → not composable
 + Msg<'T>      → three message types only               → operators can transform
 + Rx grammar   → strict sequencing protocol             → operators can rely on termination
-+ Spawn wrap   → spawning controls the sender           → wiring is composable
++ Subscribe    → subscribing controls the sender        → wiring is composable
 = Fully composable pipeline
 ```
 
@@ -118,42 +117,49 @@ Raw actors accept arbitrary messages of any type. `Msg<'T>` restricts the vocabu
 
 ### Restriction 2: Constrain WHEN (Rx Grammar)
 
-Raw actors accept messages in any order, forever. The Rx grammar prescribes `OnNext* (OnError | OnCompleted)?` — terminal events are final. Each operator process self-enforces this: when a terminal event arrives, the actor loop ends (no `return! loop`), the process exits naturally, and BEAM links cascade the termination. This makes resource management possible — operators can clean up on termination.
+Raw actors accept messages in any order, forever. The Rx grammar prescribes `OnNext* (OnError | OnCompleted)?` — terminal events are final. Each operator process self-enforces this: when a terminal event arrives, the agent CE loop ends (no `return! loop`), the process exits naturally, and BEAM links cascade the termination. This makes resource management possible — operators can clean up on termination.
 
-### Restriction 3: Constrain WHO (Spawn)
+### Restriction 3: Constrain WHO (Subscribe)
 
-Raw actors receive from anyone with their Pid. `Factor<'T>` wraps the observer in a `Spawn` function — only the upstream source delivers messages. This makes wiring composable — operators build a chain by wrapping observers and spawning upstream.
+Raw actors receive from anyone with their Pid. `Observable<'T>` wraps the observer in a `Subscribe` function — only the upstream source delivers messages. This makes wiring composable — operators build a chain by wrapping observers and subscribing upstream.
 
 ## How the Layers Map to Code
 
 | Layer |                   Types                    |                                       Files                                       |                 Purpose                  |
 | ----- | ------------------------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------- |
-| 0     | BEAM process, Pid                          | `Process.fs`, `Actor.fs`, `factor_actor.erl`                                      | Raw actor primitives, CPS actor CE       |
+| 0     | BEAM process, Agent                        | `Process.fs`, `Agent.fs`, `Actor.fs`, `factor_actor.erl`                          | Raw actor primitives, agent CE, operator machinery |
 | 1     | `Msg<'T>`, `Observer<'T>`                  | `Types.fs`                                                                        | Restricted protocol, process endpoints   |
-| 2     | `Factor<'T>`, `Handle`, operators          | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs`, `Flow.fs` | Composable process-per-operator actors   |
+| 2     | `Observable<'T>`, `Handle`, operators      | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs`, `Builder.fs` | Composable process-per-operator actors   |
 
 ## Bridges Between Layers
 
 ### channel() — Layer 0 → Layer 2
 
-`channel()` creates a BEAM actor process (Layer 0) and exposes it as `Sender<'T> * Factor<'T>` (Layer 1 + 2). This is the primary bridge — it gives a raw actor a composable interface.
+`channel()` wraps an `Agent<ChannelMsg<'T>>` (Layer 0) and exposes it as `Observer<'T> * Observable<'T>` (Layer 1 + 2). This is the primary bridge — it gives an agent a composable interface.
 
 ```fsharp
-let (sender, messages) = channel<Command> ()
-// sender = the input (Sender) — push messages here via Reactive.pushNext
-// messages = the output (Factor) — spawn to process them
+let (observer, messages) = multicast<Command> ()
+// observer = the input (Observer) — push messages here via Reactive.pushNext
+// messages = the output (Observable) — subscribe to process them
 ```
 
-`Sender<'T>` is `{ ChannelPid: obj }` — the push-side handle to a channel actor. Messages are sent via `Reactive.pushNext sender value` (not `observer.Send`).
+The push side is an `Observer<'T>` whose `Pid` points to the channel agent. Push helpers send `ChannelMsg` via `Agent.send`:
 
-The channel actor (`factor_stream.erl`) manages a subscriber map and broadcasts messages. Spawn is synchronous to prevent races between spawning and first send.
+```fsharp
+// Push sends {factor_msg, {notify, {on_next, Value}}} to channel agent
+Reactive.pushNext observer value
+
+// Channel agent broadcasts to subscribers via {factor_child, Ref, Msg}
+```
+
+Subscribe uses `Agent.call` for synchronous ack, preventing races between subscribing and first send.
 
 ### flatMap — Layer 2 → Layer 0 → Layer 2
 
-Every `flatMap` (and every `flow { let! }`) descends to Layer 0 (spawns a BEAM process), then wraps the child back in Layer 2 (the child spawns an inner Factor and sends messages back to the parent via `{factor_child, Ref, Msg}` messages). There is no separate "spawned" variant — every flatMap spawns child processes, because every operator is a process. The supervision tree emerges from this Layer 2 → 0 → 2 round-trip.
+Every `flatMap` (and every `observable { let! }`) descends to Layer 0 (spawns a BEAM process), then wraps the child back in Layer 2 (the child subscribes to an inner Observable and sends messages back to the parent via `{factor_child, Ref, Msg}` messages). There is no separate "spawned" variant — every flatMap spawns child processes, because every operator is a process. The supervision tree emerges from this Layer 2 → 0 → 2 round-trip.
 
 ```fsharp
-flow {
+observable {
     let! x = sourceA    // spawn child process for sourceA
     let! y = sourceB x  // spawn child process for sourceB
     return combine x y
@@ -161,47 +167,43 @@ flow {
 // Parent supervises children — pipeline IS the supervision hierarchy
 ```
 
-### actor { } — Layer 0 Foundation
+### agent { } — Layer 0 Foundation
 
-The Actor CE (`actor { let! msg = ctx.Recv() }`) is a direct Layer 0 primitive — the foundation that operators are built on. It provides CPS-based selective receive, which operators use internally via `recvMsg` and `recvAnyMsg`. It can also be used directly for patterns that Rx can't express (blocking selective receive, request-response), though bridging to Factor pipelines requires a channel.
+The Agent CE (`agent { let! msg = recv () }`) is a direct Layer 0 primitive — the foundation that operators are built on. It provides CPS-based selective receive, which operators use internally via `Actor.recvMsg` and `Actor.recvAnyMsg`. It can also be used directly for patterns that Rx can't express (blocking selective receive, request-response), though bridging to Observable pipelines requires a channel.
 
 ```fsharp
-let counterActor = spawn (fun ctx ->
-    let rec loop count = actor {
-        let! msg = ctx.Recv()
-        match msg with
-        | Increment -> return! loop (count + 1)
-        | GetCount replyPid -> send replyPid count
-    }
-    loop 0)
+let counterAgent = Agent.start 0 (fun count msg ->
+    match msg with
+    | Increment -> Continue (count + 1)
+    | GetCount rc -> rc.Reply count; Continue count)
 ```
 
 ## The Actor-Observable Duality
 
 |    Actor Concept     |            Factor Equivalent             |                 Notes                  |
 | -------------------- | ---------------------------------------- | -------------------------------------- |
-| Actor (unspawned)    | `Factor<'T>` (cold)                      | A behavior definition, not yet running |
-| Actor (running)      | Spawned subscription / `channel()` (hot) | Running process, addressable           |
-| Mailbox              | `channel()` / Sender input side          | Where messages arrive                  |
+| Actor (unspawned)    | `Observable<'T>` (cold)                  | A behavior definition, not yet running |
+| Actor (running)      | Subscribed pipeline / `multicast()` (hot)| Running process, addressable           |
+| Mailbox              | `multicast()` / Observer input side      | Where messages arrive                  |
 | Behavior             | Operator pipeline                        | How messages are processed             |
 | State                | `scan` operator / `let rec` loop params  | Accumulated over messages              |
 | Spawn child          | `flatMap` / `mergeInner`                 | Creates linked child process           |
-| Send message         | `Process.onNext observer x` or `Reactive.pushNext sender x` | Push into process or channel |
-| Actor identity (Pid) | Channel process Pid                      | Addressable endpoint                   |
+| Send message         | `Process.onNext observer x` or `Reactive.pushNext observer x` | Push into process or channel |
+| Actor identity (Pid) | Channel agent Pid                        | Addressable endpoint                   |
 | Actor lifecycle      | Handle (`Dispose` = shutdown)            | Resource management                    |
 | Supervision          | BEAM links + `SupervisionPolicy`         | Default: crash cascades. Override: policy on `mergeInner` |
 
 ### What Each Concept Really Is
 
-**Factor<'T> = An Unborn Actor.** A `Factor<'T>` is a blueprint — it describes what an actor will do when spawned. Nothing happens until `Spawn` is called. Spawning IS instantiation.
+**Observable<'T> = An Unborn Actor.** An `Observable<'T>` is a blueprint — it describes what an actor will do when subscribed. Nothing happens until `Subscribe` is called. Subscribing IS instantiation.
 
-**channel() = A Running Actor's Mailbox.** `channel()` returns `Sender<'T> * Factor<'T>` — input and output. This is an actor that's already alive (a BEAM process), waiting for messages.
+**multicast() = A Running Actor's Mailbox.** `multicast()` returns `Observer<'T> * Observable<'T>` — input and output. This is an agent that's already alive (a BEAM process), waiting for messages.
 
 **Rx Operators = Actor Behavior.** Each operator IS a BEAM process. The pipeline between input and output is a tree of linked processes.
 
-**flatMap = Spawn Child Actor.** Each `let!` in `flow { }` spawns a child process. The supervision tree emerges from the pipeline topology.
+**flatMap = Spawn Child Actor.** Each `let!` in `observable { }` spawns a child process. The supervision tree emerges from the pipeline topology.
 
-**subscribe = Actor Instantiation.** Spawning starts the pipeline running. The returned Handle controls the actor's lifetime.
+**subscribe = Actor Instantiation.** Subscribing starts the pipeline running. The returned Handle controls the actor's lifetime.
 
 ## The Continuation Monad Unification
 
@@ -209,34 +211,34 @@ All three layers share the same underlying shape: the continuation monad.
 
 ```fsharp
 // Continuation monad (textbook)
-type Cont<'T>      = { Run:    ('T -> unit)     -> unit   }
+type Cont<'T>      = { Run:       ('T -> unit)     -> unit   }
 
-// Actor CE (Actor.fs) — the raw continuation monad
-type Actor<'Msg,'T> = { Run:    ('T -> unit)     -> unit   }
+// Agent CE (Agent.fs) — the raw continuation monad
+type AgentOp<'T>   = { Run:       ('T -> unit)     -> unit   }
 
-// Factor — continuation monad + protocol + lifetime
-type Factor<'T>    = { Spawn:  (Observer<'T>)    -> Handle }
+// Observable — continuation monad + protocol + lifetime
+type Observable<'T> = { Subscribe: (Observer<'T>)   -> Handle }
 ```
 
-Factor enriches the continuation monad in exactly two ways:
+Observable enriches the continuation monad in exactly two ways:
 
 1. **Richer callback**: `Observer<'T>` (process endpoint for three-case `Msg`) instead of plain `'T -> unit`
 2. **Lifetime return**: `Handle` instead of `unit`
 
 These two enrichments correspond precisely to the two sides of actor lifecycle.
 
-### Spawn = Run = Spawn
+### Subscribe = Run = Spawn
 
 These are the same operation — execute a deferred computation with a callback:
 
 | Abstraction | Operation | Meaning |
 |---|---|---|
 | `Cont<'T>` | `Run(callback)` | Run the continuation |
-| `Actor<'Msg,'T>` | `Run(callback)` | Start the CPS receive loop |
-| `Factor<'T>` | `Spawn(observer)` | Start the pipeline, begin delivery |
+| `AgentOp<'T>` | `Run(callback)` | Start the CPS receive loop |
+| `Observable<'T>` | `Subscribe(observer)` | Start the pipeline, begin delivery |
 | BEAM | `spawn(fun)` | Start a process |
 
-A `Factor<'T>` is inert until `Spawn` is called — just as an actor behavior is inert until `spawn`. The continuation captures *what will happen*; calling it makes it happen. **Spawn IS Run.**
+An `Observable<'T>` is inert until `Subscribe` is called — just as an actor behavior is inert until `spawn`. The continuation captures *what will happen*; calling it makes it happen. **Subscribe IS Run.**
 
 ### Dispose = Kill = Supervise
 
@@ -245,14 +247,14 @@ The return side unifies lifetime management:
 | Abstraction | Operation | Meaning |
 |---|---|---|
 | `Cont<'T>` | *(none — `unit` return)* | No lifetime control |
-| `Actor<'Msg,'T>` | *(none — `unit` return)* | No structured shutdown |
-| `Factor<'T>` | `Handle.Dispose()` | Stop delivery, clean up |
+| `AgentOp<'T>` | *(none — `unit` return)* | No structured shutdown |
+| `Observable<'T>` | `Handle.Dispose()` | Stop delivery, clean up |
 | BEAM | `exit(Pid, Reason)` | Kill a process |
 | OTP | Supervisor | Manage child lifetimes |
 
 The raw continuation monad returns `unit` — fire and forget. There is no way to cancel or manage what you started. The raw actor model has `exit/2` but it's external and unstructured — any process can kill any other.
 
-Factor's `Handle` unifies these: `Spawn` atomically returns the means to end what it started. **Dispose IS Kill.** Because every operator is a process that exits when its actor loop ends, and processes are linked, error propagation IS supervision — BEAM links handle the default case.
+Observable's `Handle` unifies these: `Subscribe` atomically returns the means to end what it started. **Dispose IS Kill.** Because every operator is a process that exits when its agent CE loop ends, and processes are linked, error propagation IS supervision — BEAM links handle the default case.
 
 ### Two Levels of Supervision
 
@@ -285,14 +287,14 @@ source |> mergeInner (Restart 3) (Some 5)        // retry up to 3 times, max 5 c
 This is analogous to OTP: a linked process is like a worker under a `one_for_one` supervisor with `permanent` restart. `SupervisionPolicy` adds the equivalent of `transient` (Skip) and `restart` with max retries.
 
 ```fsharp
-// Spawn returns Handle — spawning and lifetime are one atomic operation
-let handle = pipeline |> subscribe observer
+// Subscribe returns Handle — subscribing and lifetime are one atomic operation
+let handle = pipeline |> Reactive.spawn observer
 // handle.Dispose() — structured shutdown, like supervisor:terminate_child
 
-// Each operator's actor loop enforces the Rx grammar:
+// Each operator's agent CE loop enforces the Rx grammar:
 // Terminal events end the loop — process exits, links cascade
-let rec loop () = actor {
-    let! msg = Process.recvMsg<'T> ref
+let rec loop () = agent {
+    let! msg = Actor.recvMsg<'T> ref
     match msg with
     | OnNext x -> Process.onNext downstream (mapper x); return! loop ()
     | OnError e -> Process.onError downstream e      // loop ends → process exits
@@ -304,20 +306,37 @@ let rec loop () = actor {
 
 In the raw actor model, spawning and supervision are separate concerns — you spawn a process, then separately set up a supervisor to watch it. In Factor, they are unified through the continuation monad shape:
 
-- **`Spawn`** = spawn (start the computation with a callback)
+- **`Subscribe`** = spawn (start the computation with a callback)
 - **`Handle`** = supervision (the returned capability to manage lifetime)
 - **Process exit on terminal** = structural supervision (exit on error/complete cascades via links)
 - **`SupervisionPolicy`** = behavioral supervision (what `mergeInner` does when a child process crashes)
 
-The pipeline IS the supervision tree because the continuation monad naturally nests: each operator wraps the downstream observer and spawns upstream, creating a chain of Spawn/Handle pairs — a chain of spawn/supervise pairs.
+The pipeline IS the supervision tree because the continuation monad naturally nests: each operator wraps the downstream observer and subscribes upstream, creating a chain of Subscribe/Handle pairs — a chain of spawn/supervise pairs.
 
 ```text
-Cont monad:           run(k)           → unit
+Cont monad:           run(k)              → unit
                          ↓ enrich callback
-Factor:              spawn(observer)   → handle
+Observable:          subscribe(observer)   → handle
                          ↓ meaning
-Actor model:          spawn(behavior)  → supervision
+Actor model:          spawn(behavior)      → supervision
 ```
+
+## Architectural Layers
+
+The codebase is organized into clean layers with unidirectional dependencies:
+
+```text
+Process → Agent → Actor → Observable → Channel → Composed Operators
+```
+
+|   Layer    |                                 Module                                 |                                    Purpose                                     |
+| ---------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Process    | `Process.fs`                                                           | BEAM primitives: spawn, link, kill, refs, observer message protocol            |
+| Agent      | `Agent.fs`                                                             | Typed agent abstraction: `agent { }` CE, spawn, start, send, call              |
+| Actor      | `Actor.fs`                                                             | Operator process machinery: selective receive, message loops, operator helpers |
+| Observable | `Types.fs`                                                             | `Observable<'T>`, `Observer<'T>`, `Msg<'T>`, `Handle`                          |
+| Channel    | `Channel.fs`                                                           | Agent-parameterized channels: push helpers, multicast, singleSubscriber        |
+| Operators  | `Create.fs`, `Transform.fs`, `Filter.fs`, `Combine.fs`, `TimeShift.fs` | Composed operators built from the above                                        |
 
 ## One Composition Model: Process-Per-Operator
 
@@ -332,10 +351,10 @@ source |> map f |> filter g |> flatMap h
 
 Each pipe operator spawns a process linked to the downstream. Killing any process in the chain cascades via BEAM links. `flatMap` and `mergeInner` spawn additional child processes for inner subscriptions — the supervision tree emerges naturally from the pipeline topology.
 
-### flow { } — Syntactic Sugar for flatMap
+### observable { } — Syntactic Sugar for flatMap
 
 ```fsharp
-flow {
+observable {
     let! x = sourceA    // flatMap: spawn child process for sourceA
     let! y = sourceB x  // flatMap: spawn child process for sourceB
     return combine x y
@@ -343,7 +362,7 @@ flow {
 // Desugars to flatMap chains — same process-per-operator model
 ```
 
-The `flow { }` CE is syntactic sugar for `flatMap` chains. Since every operator already spawns a process, `flow { }` does not introduce a fundamentally different composition mode — it provides monadic syntax for the same underlying process tree.
+The `observable { }` CE is syntactic sugar for `flatMap` chains. Since every operator already spawns a process, `observable { }` does not introduce a fundamentally different composition mode — it provides monadic syntax for the same underlying process tree.
 
 ## The Composition Hierarchy
 
@@ -355,10 +374,10 @@ The `flow { }` CE is syntactic sugar for `flatMap` chains. Since every operator 
            ▼
      Observer-Actor (Layer 1)
            │
-           │ wrap in Spawn function
-           │ control who sends via spawning
+           │ wrap in Subscribe function
+           │ control who sends via subscribing
            ▼
-   Observable-Actor (Layer 2) = Factor<'T>
+   Observable-Actor (Layer 2) = Observable<'T>
            │
            │ compose with operators (each a process)
            ▼
@@ -368,15 +387,15 @@ The `flow { }` CE is syntactic sugar for `flatMap` chains. Since every operator 
 
 ## Where the Duality Breaks Down
 
-The Rx/Factor model captures most of what actors do, but some patterns don't map cleanly:
+The Rx/Observable model captures most of what actors do, but some patterns don't map cleanly:
 
 1. **Selective Receive**: Actors can pattern-match on mailbox messages, leaving non-matching ones for later. Rx processes ALL messages in order. You'd need `groupBy` or `partition` for selective behavior.
 
-2. **Request-Response (Ask Pattern)**: Actors naturally support send-request → block-for-reply. Rx is fire-and-forget push. You'd need a channel pair and correlation.
+2. **Request-Response (Ask Pattern)**: Actors naturally support send-request → block-for-reply. Rx is fire-and-forget push. You'd need a channel pair and correlation, or use `Agent.call` directly.
 
-3. **Blocking vs Push**: The `actor { let! msg = ctx.Recv() }` pattern blocks until a message arrives (pull-based). Rx is push-based. The CPS actor CE exists precisely because Rx can't express blocking receive.
+3. **Blocking vs Push**: The `agent { let! msg = recv () }` pattern blocks until a message arrives (pull-based). Rx is push-based. The CPS agent CE exists precisely because Rx can't express blocking receive.
 
-4. **Identity and Addressing**: In the actor model, you send to a Pid — a first-class value you can pass around. Observers are ephemeral. `channel()` bridges this gap by providing an actor-backed endpoint.
+4. **Identity and Addressing**: In the actor model, you send to a Pid — a first-class value you can pass around. Observers are ephemeral. `multicast()` bridges this gap by providing an agent-backed endpoint.
 
 ## Prior Art
 
@@ -390,7 +409,7 @@ Identified three obstacles for actor composition:
 2. Protocol conflation — implementing multiple protocols in one actor's receive is cumbersome
 3. No first-class event handling — the receive statement can't be composed functionally
 
-Their solution: **Reactors** — actors with multiple typed channels and event streams supporting functional combinators (map, filter, union). Factor implements essentially the same idea on the BEAM: `channel()` provides typed channels, Rx operators provide the functional combinators, and the BEAM provides the process runtime.
+Their solution: **Reactors** — actors with multiple typed channels and event streams supporting functional combinators (map, filter, union). Factor implements essentially the same idea on the BEAM: `multicast()` provides typed channels, Rx operators provide the functional combinators, and the BEAM provides the process runtime.
 
 ### Akka Streams
 
@@ -407,11 +426,9 @@ CSP constrains actors with fixed-topology channels — composable but inflexible
 ### The Common Pattern
 
 | System | Composable Unit | Constraint Added |
-|--------|-----------------|-----------------|
+|--------|-----------------|-----------------:|
 | Prokopec's Reactors | Typed channels + event streams | Multiple typed ports instead of one untyped mailbox |
 | Akka Streams | Source / Flow / Sink | Directed graph topology with back-pressure |
 | GenStage/Broadway | Producer / Consumer stages | Demand-based flow control |
 | CSP | Channels | Fixed topology, synchronous rendezvous |
-| **Factor** | `channel()` + Rx operators | Push-based spawning with Rx grammar |
-
-Factor's approach is closest to Prokopec's Reactors: typed channels enable composition through functional combinators (Rx operators), with the BEAM providing lightweight processes and fault tolerance that Scala/JVM Reactors had to simulate.
+| **Factor** | `multicast()` + Rx operators | Push-based subscribing with Rx grammar |

@@ -5,7 +5,7 @@
 /// rely on the Fable.Beam mutable state mechanism working across processes.
 module Factor.TimeshiftTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 
@@ -207,7 +207,7 @@ let throttle_via_facade_test () =
 
 let debounce_dispose_cancels_timer_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
 
     let disp =
         output
@@ -222,7 +222,7 @@ let debounce_dispose_cancels_timer_test () =
 
 let throttle_dispose_cancels_timer_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
 
     let disp =
         output
@@ -247,7 +247,7 @@ let throttle_dispose_cancels_timer_test () =
 
 let delay_dispose_cancels_pending_timers_test () =
     let tc = TestCollector<int>()
-    let input, output = Reactive.channel ()
+    let input, output = Reactive.multicast ()
 
     let disp =
         output

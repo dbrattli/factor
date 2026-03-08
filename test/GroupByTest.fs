@@ -1,7 +1,7 @@
 /// Tests for groupBy operator
 module Factor.GroupByTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 

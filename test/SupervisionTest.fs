@@ -1,17 +1,18 @@
 /// Tests for supervision policies in mergeInner
 module Factor.SupervisionTest
 
-open Factor.Types
+open Factor.Agent.Types
+open Factor.Beam
 open Factor.Reactive
 open Factor.TestUtils
 
 // Helper: a factor that crashes during subscribe
-let crashFactor<'T> : Factor<'T> =
-    { Spawn = fun _ -> failwith "crash!" }
+let crashObservable<'T> : Observable<'T> =
+    { Subscribe = fun _ -> failwith "crash!" }
 
 // Helper: a factor that emits a value then crashes
-let emitThenCrash (value: 'T) : Factor<'T> =
-    { Spawn =
+let emitThenCrash (value: 'T) : Observable<'T> =
+    { Subscribe =
         fun observer ->
             Process.onNext observer value
             failwith "crash after emit" }
@@ -23,7 +24,7 @@ let emitThenCrash (value: 'T) : Factor<'T> =
 let terminate_produces_error_on_crash_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor ]
+    Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner Terminate None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -35,7 +36,7 @@ let terminate_produces_error_on_crash_test () =
 let terminate_stops_pipeline_on_crash_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor; Reactive.single 42 ]
+    Reactive.ofList [ crashObservable; Reactive.single 42 ]
     |> Transform.mergeInner Terminate None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -52,7 +53,7 @@ let terminate_stops_pipeline_on_crash_test () =
 let skip_continues_after_crash_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor; Reactive.ofList [ 1; 2; 3 ] ]
+    Reactive.ofList [ crashObservable; Reactive.ofList [ 1; 2; 3 ] ]
     |> Transform.mergeInner Skip None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -66,7 +67,7 @@ let skip_completes_when_all_done_test () =
     let tc = TestCollector<int>()
 
     // Only inner is a crash — should complete with no results
-    Reactive.ofList [ crashFactor ]
+    Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner Skip None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -79,7 +80,7 @@ let skip_completes_when_all_done_test () =
 let skip_multiple_crashes_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor; crashFactor; Reactive.single 42; crashFactor ]
+    Reactive.ofList [ crashObservable; crashObservable; Reactive.single 42; crashObservable ]
     |> Transform.mergeInner Skip None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -92,7 +93,7 @@ let skip_multiple_crashes_test () =
 let skip_all_crash_completes_empty_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor; crashFactor; crashFactor ]
+    Reactive.ofList [ crashObservable; crashObservable; crashObservable ]
     |> Transform.mergeInner Skip None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -110,7 +111,7 @@ let restart_exhausted_produces_error_test () =
     let tc = TestCollector<int>()
 
     // Always crashes — Restart(2) means 1 initial + 2 retries = 3 attempts
-    Reactive.ofList [ crashFactor ]
+    Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner (Restart 2) None
     |> Reactive.spawn tc.Observer
     |> ignore
@@ -122,7 +123,7 @@ let restart_exhausted_produces_error_test () =
 let restart_zero_retries_same_as_terminate_test () =
     let tc = TestCollector<int>()
 
-    Reactive.ofList [ crashFactor ]
+    Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner (Restart 0) None
     |> Reactive.spawn tc.Observer
     |> ignore

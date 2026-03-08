@@ -1,9 +1,10 @@
-/// Factor - Composable Actors for BEAM via Fable
+/// Factor.Reactive — Main API facade module
 ///
-/// Main API facade module that re-exports all public types and operators.
-module Factor.Reactive
+/// Re-exports all public types and operators for convenient access.
+module Factor.Reactive.Reactive
 
-open Factor.Types
+open Factor.Agent.Types
+open Factor.Beam
 
 // ============================================================================
 // Observer helpers (message-passing to process endpoints)
@@ -15,24 +16,24 @@ let onCompleted observer = Process.onCompleted observer
 let notify observer msg = Process.notify observer msg
 
 // ============================================================================
-// Sender helpers (push to channel actors)
+// Push helpers (send to channel observers)
 // ============================================================================
 
-let pushNext sender value = Process.pushNext sender value
-let pushError sender error = Process.pushError sender error
-let pushCompleted sender = Process.pushCompleted sender
+let pushNext observer value = Channel.pushNext observer value
+let pushError observer error = Channel.pushError observer error
+let pushCompleted observer = Channel.pushCompleted observer
 
 // ============================================================================
 // Spawn / Subscribe helpers
 // ============================================================================
 
-/// Subscribe an observer endpoint to a factor.
-let spawn (observer: Observer<'T>) (factor: Factor<'T>) : Handle = factor.Spawn(observer)
+/// Subscribe an observer endpoint to an observable.
+let spawn (observer: Observer<'T>) (observable: Observable<'T>) : Handle = observable.Subscribe(observer)
 
-/// Subscribe to a factor with user callbacks.
+/// Subscribe to an observable with user callbacks.
 /// Registers a child handler in the current process for receiving messages.
 /// The caller's process must run a message loop (sleep/processTimers).
-let subscribe (onNextFn: 'T -> unit) (onErrorFn: exn -> unit) (onCompletedFn: unit -> unit) (factor: Factor<'T>) : Handle =
+let subscribe (onNextFn: 'T -> unit) (onErrorFn: exn -> unit) (onCompletedFn: unit -> unit) (observable: Observable<'T>) : Handle =
     let ref = Process.makeRef ()
 
     Process.registerChild ref (fun msg ->
@@ -48,7 +49,7 @@ let subscribe (onNextFn: 'T -> unit) (onErrorFn: exn -> unit) (onCompletedFn: un
             onCompletedFn ())
 
     let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-    let handle = factor.Spawn(endpoint)
+    let handle = observable.Subscribe(endpoint)
 
     {
         Dispose =
@@ -163,8 +164,9 @@ let timeout ms source = TimeShift.timeout ms source
 // Channel operators
 // ============================================================================
 
-let channel () = Channel.channel ()
-let singleChannel () = Channel.singleChannel ()
+let channel agent = Channel.channel agent
+let multicast () = Channel.multicast ()
+let singleSubscriber () = Channel.singleSubscriber ()
 let publish source = Channel.publish source
 let share source = Channel.share source
 
@@ -182,14 +184,20 @@ let catch handler source = Error.catch handler source
 let tapSend send source = Interop.tapSend send source
 
 // ============================================================================
-// Actor types and operators
+// Agent types and operators
 // ============================================================================
 
-type Pid<'Msg> = Actor.Pid<'Msg>
-type Actor<'Msg, 'T> = Actor.Actor<'Msg, 'T>
-type ActorContext<'Msg> = Actor.ActorContext<'Msg>
+open Factor.Agent.Types
+open Factor.Beam.Agent
 
-let actor = Actor.actor
-let spawnActor body = Actor.spawn body
-let send pid msg = Actor.send pid msg
-let self () = Actor.self ()
+type Agent<'Msg> = Factor.Agent.Types.Agent<'Msg>
+type AgentOp<'T> = Factor.Beam.Agent.AgentOp<'T>
+type ReplyChannel<'Reply> = Factor.Agent.Types.ReplyChannel<'Reply>
+type Next<'State> = Factor.Agent.Types.Next<'State>
+
+let agent = Factor.Beam.Agent.agent
+let spawnAgent body = Factor.Beam.Agent.spawn body
+let startAgent initialState handler = Factor.Beam.Agent.start initialState handler
+let sendAgent agent msg = Factor.Beam.Agent.send agent msg
+let selfAgent () = Factor.Beam.Agent.self ()
+let callAgent agent msgFactory = Factor.Beam.Agent.call agent msgFactory

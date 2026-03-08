@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Erlang.fs" />
+    <Compile Include="Agent.fs" />
+    <Compile Include="Process.fs" />
+    <Compile Include="Actor.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Factor.Agent/Factor.Agent.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="5.0.0-beta.5" />
+  </ItemGroup>
+</Project>

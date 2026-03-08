@@ -1,7 +1,7 @@
 /// Tests for transform operators (map, flatMap, concatMap, scan, reduce)
 module Factor.TransformTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 
@@ -453,7 +453,7 @@ let switch_map_basic_test () =
 let switch_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    let emptyOuter: Observable<Observable<int>> = Reactive.empty ()
     emptyOuter |> Reactive.switchInner |> Reactive.spawn tc.Observer |> ignore
 
     sleep 50

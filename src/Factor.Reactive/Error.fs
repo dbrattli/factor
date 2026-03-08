@@ -1,25 +1,26 @@
-/// Error handling operators for Factor
+/// Error handling operators for Factor.Reactive
 ///
 /// Every operator spawns a BEAM process. The pipeline IS the supervision tree.
-module Factor.Error
+module Factor.Reactive.Error
 
-open Factor.Types
-open Factor.Actor
+open Factor.Agent.Types
+open Factor.Beam
+open Factor.Beam.Agent
 
-/// Resubscribes to the source factor when an error occurs,
+/// Resubscribes to the source observable when an error occurs,
 /// up to the specified number of retries.
-let retry (maxRetries: int) (source: Factor<'T>) : Factor<'T> = {
-    Spawn =
+let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
+    Subscribe =
         fun downstream ->
-            Process.spawnOp (fun () ->
+            Actor.spawnOp (fun () ->
                 let rec subscribeToSource (retriesLeft: int) =
                     let ref = Process.makeRef ()
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                    source.Spawn upstream |> ignore
+                    source.Subscribe upstream |> ignore
 
                     let rec loop () =
-                        actor {
-                            let! msg = Process.recvMsg<'T> ref
+                        agent {
+                            let! msg = Actor.recvMsg<'T> ref
 
                             match msg with
                             | OnNext x ->
@@ -38,18 +39,18 @@ let retry (maxRetries: int) (source: Factor<'T>) : Factor<'T> = {
                 subscribeToSource maxRetries)
 }
 
-/// On error, switches to a fallback factor returned by the error handler.
-let catch (errorHandler: exn -> Factor<'T>) (source: Factor<'T>) : Factor<'T> = {
-    Spawn =
+/// On error, switches to a fallback observable returned by the error handler.
+let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Observable<'T> = {
+    Subscribe =
         fun downstream ->
-            Process.spawnOp (fun () ->
+            Actor.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                source.Spawn(upstream) |> ignore
+                source.Subscribe(upstream) |> ignore
 
                 let rec loop () =
-                    actor {
-                        let! msg = Process.recvMsg<'T> ref
+                    agent {
+                        let! msg = Actor.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->
@@ -64,11 +65,11 @@ let catch (errorHandler: exn -> Factor<'T>) (source: Factor<'T>) : Factor<'T> = 
                                 Ref = fallbackRef
                             }
 
-                            fallback.Spawn fallbackUpstream |> ignore
+                            fallback.Subscribe fallbackUpstream |> ignore
 
                             let rec innerLoop () =
-                                actor {
-                                    let! innerMsg = Process.recvMsg<'T> fallbackRef
+                                agent {
+                                    let! innerMsg = Actor.recvMsg<'T> fallbackRef
 
                                     match innerMsg with
                                     | OnNext x ->

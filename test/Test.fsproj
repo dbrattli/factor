@@ -11,7 +11,7 @@
     <Compile Include="TimeshiftTest.fs" />
     <Compile Include="ChannelTest.fs" />
     <Compile Include="ErrorTest.fs" />
-    <Compile Include="FlowTest.fs" />
+    <Compile Include="BuilderTest.fs" />
     <Compile Include="ActorTest.fs" />
     <Compile Include="MergeInnerTest.fs" />
     <Compile Include="AmbForkjoinTest.fs" />
@@ -20,6 +20,8 @@
     <Compile Include="SupervisionTest.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../src/Factor.fsproj" />
+    <ProjectReference Include="../src/Factor.Agent/Factor.Agent.fsproj" />
+    <ProjectReference Include="../src/Factor.Beam/Factor.Beam.fsproj" />
+    <ProjectReference Include="../src/Factor.Reactive/Factor.Reactive.fsproj" />
   </ItemGroup>
 </Project>

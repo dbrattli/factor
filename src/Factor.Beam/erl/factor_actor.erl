@@ -1,11 +1,12 @@
 -module(factor_actor).
--export([spawn_actor/1, send_msg/2, receive_msg/1, self_pid/0,
+-export([spawn_actor/1, send_msg/2, receive_msg/1, receive_msg_blocking/0, self_pid/0,
          spawn_linked/1, monitor_process/1, demonitor_process/1,
          kill_process/1, trap_exits/0,
          make_ref/0, register_child/2, unregister_child/1,
          register_exit/2, unregister_exit/1,
          exit_normal/0, format_reason/1, child_loop/0,
-         recv_child/2, recv_any_child/1]).
+         recv_child/2, recv_any_child/1,
+         send_reply/3, recv_reply/1]).
 
 %% Spawn a new process that runs Fun(ok).
 spawn_actor(Fun) ->
@@ -16,10 +17,16 @@ send_msg(Pid, Msg) ->
     Pid ! {factor_msg, Msg},
     ok.
 
-%% Block until a factor_msg arrives, then call Cont with the message.
+%% Block until a factor_msg arrives, then call Cont with the message (CPS).
 receive_msg(Cont) ->
     receive
         {factor_msg, Msg} -> Cont(Msg)
+    end.
+
+%% Block until a factor_msg arrives, return the message directly.
+receive_msg_blocking() ->
+    receive
+        {factor_msg, Msg} -> Msg
     end.
 
 %% Return self().
@@ -140,6 +147,24 @@ dispatch_exit(Pid, Reason) ->
                         #{} -> ok
                     end
             end
+    end.
+
+%% Send a reply tagged with Ref back to the caller Pid.
+send_reply(Pid, Ref, Value) ->
+    Pid ! {factor_reply, Ref, Value},
+    ok.
+
+%% Blocking selective receive for a reply matching Ref.
+%% Dispatches timer callbacks and exit signals while waiting.
+recv_reply(Ref) ->
+    receive
+        {factor_reply, Ref, Reply} -> Reply;
+        {factor_timer, _TRef, Callback} ->
+            Callback(ok),
+            recv_reply(Ref);
+        {'EXIT', Pid, Reason} ->
+            dispatch_exit(Pid, Reason),
+            recv_reply(Ref)
     end.
 
 %% Child process message loop.

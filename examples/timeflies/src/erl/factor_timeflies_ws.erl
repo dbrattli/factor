@@ -4,8 +4,8 @@
 %% Cowboy WebSocket handler for the timeflies demo.
 %%
 %% On init, calls the F# setupPipeline function which returns
-%% {MouseSender, Disposable}. Mouse events from the browser
-%% are pushed to the channel via Sender, and timer/child/send
+%% {MouseObserver, Disposable}. Mouse events from the browser
+%% are pushed to the channel agent via Observer, and timer/child/send
 %% messages are handled inline.
 
 init(Req, State) ->
@@ -17,21 +17,20 @@ websocket_init(_State) ->
     SendFn = fun(Json) -> Self ! {send, Json} end,
 
     %% Call the compiled F# setup_pipeline function
-    %% Returns {Sender, Handle} where Sender = #{channel_pid => Pid}
-    {MouseSender, Disposable} = timeflies:setup_pipeline(SendFn),
+    %% Returns {Observer, Handle} where Observer = #{pid => Pid, ref => Ref}
+    {MouseObserver, Disposable} = timeflies:setup_pipeline(SendFn),
 
-    {ok, #{mouse_sender => MouseSender, disposable => Disposable}}.
+    {ok, #{mouse_observer => MouseObserver, disposable => Disposable}}.
 
 websocket_handle({text, Json}, State) ->
     case jsx:decode(Json, [return_maps]) of
         #{<<"x">> := X, <<"y">> := Y} when is_integer(X), is_integer(Y) ->
-            MouseSender = maps:get(mouse_sender, State),
+            MouseObserver = maps:get(mouse_observer, State),
             %% MousePos record compiles to #{x => X, y => Y}
             MousePos = #{x => X, y => Y},
-            %% Push OnNext to channel actor via Sender
-            %% Sender = #{channel_pid => Pid}, send {stream_notify, {on_next, Value}}
-            ChannelPid = maps:get(channel_pid, MouseSender),
-            ChannelPid ! {stream_notify, {on_next, MousePos}},
+            %% Push Notify(OnNext(Value)) to channel agent via factor_msg protocol
+            ObserverPid = maps:get(pid, MouseObserver),
+            ObserverPid ! {factor_msg, {notify, {on_next, MousePos}}},
             {ok, State};
         _ ->
             {ok, State}

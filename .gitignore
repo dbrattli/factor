@@ -1,9 +1,12 @@
 .DS_Store
-*.beam
 *.ez
-/build
 erl_crash.dump
-src/bin/
-src/obj/
-test/bin/
-test/obj/
+**/bin/
+**/obj/
+**/build/
+apps/
+_build/
+
+# Ignore compiled BEAM files but not Factor.Beam directory
+*.beam
+!Factor.Beam
