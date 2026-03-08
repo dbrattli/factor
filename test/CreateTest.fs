@@ -1,7 +1,7 @@
 /// Tests for creation operators
 module Factor.CreateTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 

@@ -1,7 +1,7 @@
 /// Tests for mergeInner, concatInner, and related operators
 module Factor.MergeInnerTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 
@@ -26,7 +26,7 @@ let merge_inner_basic_test () =
 let merge_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    let emptyOuter: Observable<Observable<int>> = Reactive.empty ()
     emptyOuter |> Reactive.mergeInner Terminate None |> Reactive.spawn tc.Observer |> ignore
 
     sleep 50
@@ -93,7 +93,7 @@ let concat_inner_basic_test () =
 let concat_inner_empty_outer_test () =
     let tc = TestCollector<int>()
 
-    let emptyOuter: Factor<Factor<int>> = Reactive.empty ()
+    let emptyOuter: Observable<Observable<int>> = Reactive.empty ()
     emptyOuter |> Reactive.concatInner |> Reactive.spawn tc.Observer |> ignore
 
     sleep 50

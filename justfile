@@ -1,10 +1,10 @@
 # Factor development tasks
 
-build_path := "build"
-src_path := "src"
-
-fable_beam := "dotnet run --project ../fable/main/src/Fable.Cli --"
-fable_lib_beam := "fable_modules/fable-library-beam"
+# Development mode: use local Fable repo instead of dotnet tool
+# Usage: just dev=true test
+dev := "false"
+fable_repo := justfile_directory() / "../fable/beam-improvements-16"
+fable := if dev == "true" { "dotnet run --project " + fable_repo / "src/Fable.Cli" + " --" } else { "dotnet fable" }
 
 # List available recipes
 default:
@@ -12,23 +12,28 @@ default:
 
 # Clean build artifacts
 clean:
-    rm -rf {{build_path}}
+    rm -rf apps _build
 
-# Build F# to Erlang via Fable.Beam
+# Build F# to Erlang via Fable.Beam, then compile with rebar3
 build: clean
-    mkdir -p {{build_path}}
-    {{fable_beam}} {{src_path}} --exclude Fable.Core --lang beam --outDir {{build_path}}
+    {{fable}} src/Factor.Reactive --exclude Fable.Core --lang beam --outDir apps/factor --noCache
+    mv apps/factor/src/factor_reactive.app.src apps/factor/src/factor.app.src
+    sed -i '' 's/factor_reactive/factor/' apps/factor/src/factor.app.src
+    cp src/Factor.Beam/erl/*.erl apps/factor/src/
+    rebar3 compile
 
-# Build F# project only (type check)
+# Build F# projects only (type check)
 check:
-    dotnet build src/
+    dotnet build src/Factor.Agent
+    dotnet build src/Factor.Beam
+    dotnet build src/Factor.Reactive
 
 # Format source files
 format:
     dotnet fantomas src -r
 
 # Setup tooling
-setup:
+restore:
     dotnet tool restore
 
 # Type-check test project
@@ -37,13 +42,14 @@ check-test:
 
 # Build test F# to Erlang via Fable.Beam
 build-test: build
-    {{fable_beam}} test --exclude Fable.Core --lang beam --outDir {{build_path}} --noCache
+    {{fable}} test --exclude Fable.Core --lang beam --outDir apps/factor --noCache
+    rm -f apps/factor/src/test.app.src
+    cp test/test_runner.erl apps/factor/src/
+    rebar3 compile
 
 # Run tests on BEAM
-test: build build-test
-    cp test_runner.erl {{build_path}}/
-    cp src/erl/*.erl {{build_path}}/
-    cd {{build_path}} && erlc -o {{fable_lib_beam}} {{fable_lib_beam}}/*.erl && erlc *.erl && erl -pa {{fable_lib_beam}} -noshell -eval "test_runner:run()" -s init stop
+test: build-test
+    erl -pa _build/default/lib/*/ebin -noshell -eval "test_runner:run()" -s init stop
 
 # Build and check
 all: check build
@@ -51,38 +57,39 @@ all: check build
 # Check all (src + test)
 check-all: check check-test
 
+# --- Interop example ---
+
+interop_path := "examples/interop"
+interop_src := interop_path / "src"
+
+# Build interop example: F# → Erlang, compile with rebar3
+build-interop: build
+    {{fable}} {{interop_src}} --exclude Fable.Core --lang beam --outDir apps/factor --noCache
+    rm -f apps/factor/src/interop_example.app.src
+    cp {{interop_path}}/erl/*.erl apps/factor/src/
+    rebar3 compile
+
+# Run interop demo: Joe (Erlang) talks to Dag (F#)
+run-interop: build-interop
+    erl -pa _build/default/lib/*/ebin -noshell -eval "interop_demo:run()" -s init stop
+
 # --- Timeflies example ---
 
 timeflies_path := "examples/timeflies"
-timeflies_build := timeflies_path / "build"
 timeflies_src := timeflies_path / "src"
-# Path to rebar3 deps relative to inside timeflies_build (i.e. from examples/timeflies/build/)
-timeflies_deps := "../_build/default/lib"
+timeflies_app := timeflies_path / "apps/timeflies"
 
-# Build timeflies example: F# → Erlang, fetch deps, compile
+# Build timeflies example: F# → Erlang, compile with rebar3
 build-timeflies: build
-    mkdir -p {{timeflies_build}}
-    {{fable_beam}} {{timeflies_src}} --exclude Fable.Core --lang beam --outDir {{timeflies_build}}
+    {{fable}} {{timeflies_src}} --exclude Fable.Core --lang beam --outDir {{timeflies_app}} --noCache
+    cp apps/factor/src/*.erl {{timeflies_app}}/src/
+    cp {{timeflies_src}}/erl/*.erl {{timeflies_app}}/src/
     cd {{timeflies_path}} && rebar3 compile
-    cp {{build_path}}/*.erl {{timeflies_build}}/ 2>/dev/null || true
-    cp src/erl/*.erl {{timeflies_build}}/
-    cp {{timeflies_src}}/erl/*.erl {{timeflies_build}}/
-    cd {{timeflies_build}} && erlc -o {{fable_lib_beam}} {{fable_lib_beam}}/*.erl
-    cd {{timeflies_build}} && erlc -pa {{fable_lib_beam}} \
-        -pa {{timeflies_deps}}/cowboy/ebin \
-        -pa {{timeflies_deps}}/cowlib/ebin \
-        -pa {{timeflies_deps}}/ranch/ebin \
-        -pa {{timeflies_deps}}/jsx/ebin \
-        *.erl
 
 # Run timeflies demo server on http://localhost:3000
 run-timeflies: build-timeflies
-    cd {{timeflies_build}} && erl \
-        -pa {{fable_lib_beam}} \
-        -pa {{timeflies_deps}}/cowboy/ebin \
-        -pa {{timeflies_deps}}/cowlib/ebin \
-        -pa {{timeflies_deps}}/ranch/ebin \
-        -pa {{timeflies_deps}}/jsx/ebin \
+    cd {{timeflies_path}} && erl \
+        -pa _build/default/lib/*/ebin \
         -noshell \
         -eval "factor_timeflies_app:start()" \
         -eval "receive stop -> ok end"

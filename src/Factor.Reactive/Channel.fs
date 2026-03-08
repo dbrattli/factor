@@ -1,89 +1,110 @@
-/// Channel types for Factor
+/// Channel types for Factor.Reactive
 ///
-/// Channels are Senders (push side) and Factors (subscribe side).
-/// Each channel is backed by a separate BEAM actor process that manages
-/// subscribers via message passing.
-module Factor.Channel
+/// Channels are Observers (push side) and Observables (subscribe side).
+/// Each channel is backed by an Agent that defines its behavior.
+module Factor.Reactive.Channel
 
-open Factor.Types
+open Factor.Agent.Types
+open Factor.Beam
 
-/// Creates a multicast channel backed by a BEAM actor process.
-///
-/// Returns a tuple of (Sender, Factor) where:
-/// - The Sender side pushes messages to the channel actor
-/// - The Factor side registers subscribers with the channel actor
-///
-/// The channel actor manages a subscriber map and broadcasts
-/// messages to all subscribers. Subscribe is synchronous
-/// to prevent races between subscribe and first send.
-let channel<'T> () : Sender<'T> * Factor<'T> =
-    let channelPid = Process.startStream ()
+// ============================================================================
+// Push helpers (send ChannelMsg to channel agent via Observer)
+// ============================================================================
 
-    let sender: Sender<'T> = { ChannelPid = channelPid }
+/// Send an OnNext value to a channel observer.
+let pushNext (observer: Observer<'T>) (value: 'T) : unit =
+    Agent.send { Pid = observer.Pid } (Notify(OnNext value))
 
-    let factor = {
-        Spawn =
+/// Send an OnError to a channel observer.
+let pushError (observer: Observer<'T>) (error: exn) : unit =
+    Agent.send { Pid = observer.Pid } (Notify(OnError error))
+
+/// Send OnCompleted to a channel observer.
+let pushCompleted (observer: Observer<'T>) : unit =
+    Agent.send { Pid = observer.Pid } (Notify OnCompleted)
+
+// ============================================================================
+// Channel constructors
+// ============================================================================
+
+/// Wraps an Agent<ChannelMsg<'T>> into an Observer (push side) and Observable (subscribe side).
+let channel (agent: Agent<ChannelMsg<'T>>) : Observer<'T> * Observable<'T> =
+    let pushObserver: Observer<'T> = { Pid = agent.Pid; Ref = Process.makeRef () }
+
+    let observable = {
+        Subscribe =
             fun downstream ->
-                let ref = Process.makeRef ()
-
-                Process.registerChild ref (fun msg ->
-                    let n = unbox<Msg<'T>> msg
-                    Process.notify downstream n)
-
-                Process.streamSubscribe channelPid ref
-
-                {
-                    Dispose =
-                        fun () ->
-                            Process.unregisterChild ref
-                            Process.streamUnsubscribe channelPid ref
-                }
+                Agent.call agent (fun rc -> Subscribe(downstream, rc))
+                { Dispose = fun () -> Agent.send agent (Unsubscribe downstream.Ref) }
     }
 
-    (sender, factor)
+    (pushObserver, observable)
 
-/// Creates a single-subscriber channel with buffering, backed by a BEAM actor.
+/// Creates a multicast channel backed by a stateful agent.
+///
+/// Broadcasts messages to all subscribers. Subscribe is synchronous
+/// (via Agent.call) to prevent races between subscribe and first send.
+let multicast<'T> () : Observer<'T> * Observable<'T> =
+    let agent =
+        Agent.start ([] : (obj * Observer<'T>) list) (fun subscribers msg ->
+            match msg with
+            | Notify notification ->
+                for (_, sub) in subscribers do
+                    Process.notify sub notification
+
+                match notification with
+                | OnCompleted | OnError _ -> Stop
+                | _ -> Continue subscribers
+            | Subscribe(obs, rc) ->
+                rc.Reply()
+                Continue((obs.Ref, obs) :: subscribers)
+            | Unsubscribe ref ->
+                Continue(subscribers |> List.filter (fun (r, _) -> not (Process.refEquals r ref))))
+
+    channel agent
+
+/// Creates a single-subscriber channel with buffering, backed by an agent.
 ///
 /// Messages sent before subscription are buffered and delivered
 /// when a subscriber connects.
-let singleChannel<'T> () : Sender<'T> * Factor<'T> =
-    let channelPid = Process.startSingleStream ()
+type private SingleState<'T> =
+    | Waiting of Msg<'T> list
+    | Active of Observer<'T>
 
-    let sender: Sender<'T> = { ChannelPid = channelPid }
+let singleSubscriber<'T> () : Observer<'T> * Observable<'T> =
+    let agent =
+        Agent.start (Waiting [] : SingleState<'T>) (fun state msg ->
+            match state, msg with
+            | Waiting pending, Notify n -> Continue(Waiting(n :: pending))
+            | Waiting pending, Subscribe(obs, rc) ->
+                for n in List.rev pending do
+                    Process.notify obs n
 
-    let factor = {
-        Spawn =
-            fun downstream ->
-                let ref = Process.makeRef ()
+                rc.Reply()
+                Continue(Active obs)
+            | Active obs, Notify n ->
+                Process.notify obs n
 
-                Process.registerChild ref (fun msg ->
-                    let n = unbox<Msg<'T>> msg
-                    Process.notify downstream n)
+                match n with
+                | OnCompleted | OnError _ -> Stop
+                | _ -> Continue(Active obs)
+            | Active _, Unsubscribe _ -> Continue(Waiting [])
+            | _, _ -> Continue state)
 
-                Process.streamSubscribe channelPid ref
+    channel agent
 
-                {
-                    Dispose =
-                        fun () ->
-                            Process.unregisterChild ref
-                            Process.streamUnsubscribe channelPid ref
-                }
-    }
-
-    (sender, factor)
-
-/// Converts a cold factor into a connectable hot factor.
+/// Converts a cold observable into a connectable hot observable.
 ///
-/// Returns a tuple of (Factor, connect_fn).
+/// Returns a tuple of (Observable, connect_fn).
 /// The connect function subscribes to the source and multicasts to all subscribers.
-let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
+let publish (source: Observable<'T>) : Observable<'T> * (unit -> Handle) =
     let mutable subscribers: (int * Observer<'T>) list = []
     let mutable nextId = 0
     let mutable connection: Handle option = None
     let mutable terminal: Msg<'T> option = None
 
-    let factor = {
-        Spawn =
+    let observable = {
+        Subscribe =
             fun downstream ->
                 match terminal with
                 | Some n ->
@@ -110,7 +131,6 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
             match terminal with
             | Some _ -> emptyHandle ()
             | None ->
-                // Create an endpoint in this process to receive source messages
                 let ref = Process.makeRef ()
 
                 Process.registerChild ref (fun msg ->
@@ -125,7 +145,7 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
                     | OnNext _ -> ())
 
                 let sourceEndpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                let sourceHandle = source.Spawn(sourceEndpoint)
+                let sourceHandle = source.Subscribe(sourceEndpoint)
 
                 let connHandle = {
                     Dispose =
@@ -138,13 +158,13 @@ let publish (source: Factor<'T>) : Factor<'T> * (unit -> Handle) =
                 connection <- Some connHandle
                 connHandle
 
-    (factor, connect)
+    (observable, connect)
 
 /// Shares a single subscription to the source among multiple subscribers.
 ///
 /// Automatically connects when the first subscriber subscribes,
 /// and disconnects when the last subscriber unsubscribes.
-let share (source: Factor<'T>) : Factor<'T> =
+let share (source: Observable<'T>) : Observable<'T> =
     let mutable subscribers: (int * Observer<'T>) list = []
     let mutable nextId = 0
     let mutable sourceHandle: Handle option = None
@@ -170,21 +190,18 @@ let share (source: Factor<'T>) : Factor<'T> =
             | OnNext _ -> ())
 
         let endpoint: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-        let h = source.Spawn(endpoint)
+        let h = source.Subscribe(endpoint)
 
-        // Only set if not already terminated (sync sources complete during Spawn)
         if terminal.IsNone then
             sourceHandle <- Some h
 
     {
-        Spawn =
+        Subscribe =
             fun downstream ->
-                // Add subscriber FIRST so sync sources deliver to it
                 let id = nextId
                 nextId <- nextId + 1
                 subscribers <- (id, downstream) :: subscribers
 
-                // Then connect if needed
                 match terminal with
                 | Some _ when sourceHandle.IsNone ->
                     terminal <- None

@@ -1,7 +1,7 @@
 /// Tests for combining operators (merge, combineLatest, withLatestFrom, zip)
 module Factor.CombineTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 
@@ -86,7 +86,7 @@ let combine_latest_with_singles_test () =
 let combine_latest_one_empty_test () =
     let tc = TestCollector<int * string>()
     let obs1 = Reactive.ofList [ 1; 2 ]
-    let obs2: Factor<string> = Reactive.empty ()
+    let obs2: Observable<string> = Reactive.empty ()
 
     Reactive.combineLatest (fun a b -> (a, b)) obs1 obs2
     |> Reactive.spawn tc.Observer
@@ -153,7 +153,7 @@ let zip_different_lengths_test () =
 let zip_one_empty_test () =
     let tc = TestCollector<int * string>()
     let obs1 = Reactive.ofList [ 1; 2; 3 ]
-    let obs2: Factor<string> = Reactive.empty ()
+    let obs2: Observable<string> = Reactive.empty ()
 
     Reactive.zip (fun a b -> (a, b)) obs1 obs2
     |> Reactive.spawn tc.Observer

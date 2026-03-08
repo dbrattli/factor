@@ -7,7 +7,7 @@
 /// Fable.Beam intercepts and expands into proper Erlang receive expressions.
 /// Each DU case maps to a receive clause with the case's CompiledName
 /// (or snake_case name) as the Erlang atom tag.
-module Factor.Erlang
+module Factor.Beam.Erlang
 
 open Fable.Core
 

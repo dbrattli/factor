@@ -1,7 +1,7 @@
 /// Tests for filter operators
 module Factor.FilterTest
 
-open Factor.Types
+open Factor.Agent.Types
 open Factor.Reactive
 open Factor.TestUtils
 

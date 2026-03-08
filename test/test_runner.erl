@@ -12,7 +12,7 @@
     timeshift_test,
     channel_test,
     error_test,
-    flow_test,
+    builder_test,
     actor_test,
     merge_inner_test,
     amb_forkjoin_test,

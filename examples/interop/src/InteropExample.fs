@@ -1,0 +1,47 @@
+/// Interop example: F# actor "Dag" talks to Erlang process "Joe"
+///
+/// Shows the wire format for cross-language actor communication:
+///   - F# DU cases compile to Erlang tagged tuples: HelloFrom → {hello_from, ...}
+///   - Agent.send wraps in {factor_msg, Msg} envelope
+///   - ReplyChannel compiles to #{reply => fun(V) -> ... end}
+///   - Raw Erlang sends bypass the envelope
+module InteropExample
+
+open Fable.Core
+open Factor.Agent.Types
+open Factor.Beam
+
+// --- Erlang FFI helpers ---
+
+[<Emit("io:format($0, $1)")>]
+let private printfmt (fmt: string) (args: obj list) : unit = nativeOnly
+
+/// Send a raw message to an Erlang pid (no {factor_msg, ...} envelope)
+[<Emit("$0 ! $1")>]
+let private rawSend (pid: obj) (msg: obj) : unit = nativeOnly
+
+// --- Messages Dag understands ---
+// These compile to Erlang as:
+//   HelloFrom "Joe"         → {hello_from, <<"Joe">>}
+//   AskName replyChannel    → {ask_name, #{reply => fun(V) -> ... end}}
+
+type DagMsg =
+    | HelloFrom of string
+    | AskName of ReplyChannel<string>
+
+// --- Dag: the F# actor ---
+
+/// Start Dag. He keeps Joe's raw pid as state so he can reply.
+let startDag (joePid: obj) : Agent<DagMsg> =
+    Agent.start joePid (fun joePid msg ->
+        match msg with
+        | HelloFrom name ->
+            printfmt "  [Dag/F#]     Received hello from ~s~n" [ name ]
+            // Reply directly to Joe using raw Erlang send (no envelope)
+            rawSend joePid "Hei Joe! Dag her. Hyggelig å møte deg!"
+            Continue joePid
+
+        | AskName rc ->
+            printfmt "  [Dag/F#]     Someone asked my name~n" []
+            rc.Reply "Dag Brattli"
+            Continue joePid)

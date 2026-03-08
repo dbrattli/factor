@@ -3,11 +3,12 @@
 /// Provides test collectors, assertion helpers, and sleep FFI.
 module Factor.TestUtils
 
-open Factor.Types
+open Factor.Agent.Types
+open Factor.Beam
 
 /// Timer-aware sleep: processes pending factor_timer, factor_child,
 /// and EXIT messages for the specified duration.
-let sleep (ms: int) : unit = Process.processTimers ms
+let sleep (ms: int) : unit = Actor.processTimers ms
 
 /// Simple test result collector using mutable state.
 /// Collects OnNext values, completion status, and errors.
