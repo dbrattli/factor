@@ -1,6 +1,6 @@
-# Actor Interop Design Document
+# Agent Interop Design Document
 
-This document describes the design for bridging BEAM actors/processes with reactive streams in Factor.
+This document describes the design for bridging BEAM agents/processes with reactive streams in Factor.
 
 ## Overview
 
@@ -32,21 +32,9 @@ let tapSend (send: 'a -> unit) (source: Observable<'a>) : Observable<'a>
 interval 100
 |> take 10
 |> map (fun n -> Increment n)
-|> tapSend (fun msg -> sendToActor counterActor msg)
+|> tapSend (fun msg -> Agent.send counterAgent msg)
 |> subscribe logObserver
 ```
-
-## Future Operators
-
-The following operators from the original Gleam version could be added when Fable.Beam provides the necessary process primitives:
-
-| Operator | Purpose | Requires |
-| -------- | ------- | -------- |
-| `fromSubject()` | Create Subject/Observable bridge | BEAM process.Subject |
-| `toSubject(source, subject)` | Send emissions to BEAM Subject | BEAM process.Subject |
-| `callActor(subject, timeout, makeRequest)` | Request-response as Observable | BEAM process.Subject + receive |
-
-These require typed BEAM process messaging (Subject/receive) which may need additional Fable.Beam FFI support.
 
 ## Usage Patterns
 
@@ -70,11 +58,27 @@ source
 |> subscribe observer
 ```
 
+### Pattern 3: Channel as Agent Mailbox
+
+Channels bridge agents and observables — use `multicast()` to create an agent-backed endpoint that can be pushed to from any process and subscribed to from a pipeline:
+
+```fsharp
+let observer, messages = Reactive.multicast ()
+
+// Push from anywhere
+Reactive.pushNext observer command
+
+// Process in a pipeline
+messages
+|> Reactive.map handleCommand
+|> Reactive.subscribe onResult onError onComplete
+```
+
 ## Design Decisions
 
-### Simplified Interop
+### Agent-Based Channels
 
-The F# version simplifies interop compared to the Gleam version. Since Fable.Beam's process primitives are still evolving, we provide `tapSend` as a general-purpose side-effect operator. More specific BEAM interop (Subject bridging, call/reply) can be added as Fable.Beam matures.
+Channels are parameterized by `Agent<ChannelMsg<'T>>`, making them composable and extensible. Pre-composed channels (`multicast`, `singleSubscriber`) handle common patterns. Custom channel behavior can be implemented by providing a custom agent handler.
 
 ### Backpressure Considerations
 
@@ -83,15 +87,16 @@ BEAM actor mailboxes are unbounded, matching Rx's push semantics. For high-volum
 ```fsharp
 highVolumeStream
 |> throttle 100      // At most 10 messages/second
-|> tapSend sendToActor
+|> tapSend (fun msg -> Agent.send target msg)
 ```
 
 ## File Structure
 
 ```text
-src/
-├── Interop.fs       # Interop operators
+src/Factor.Reactive/
+├── Interop.fs       # Interop operators (tapSend)
+├── Channel.fs       # Channel constructors (multicast, singleSubscriber)
 └── ...
 ```
 
-The main `src/Factor.fs` re-exports the interop operators.
+The main `Reactive.fs` re-exports the interop and channel operators.

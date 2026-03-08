@@ -10,13 +10,13 @@ open Factor.Beam.Agent
 
 /// Filters elements based on a predicate.
 let filter (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         if predicate x then
             Process.onNext downstream x)
 
 /// Applies a function that returns Option. Emits Some values, skips None.
 let choose (chooser: 'T -> 'U option) (source: Observable<'T>) : Observable<'U> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         match chooser x with
         | Some value -> Process.onNext downstream value
         | None -> ())
@@ -31,7 +31,7 @@ let take (count: int) (source: Observable<'T>) : Observable<'T> =
                     emptyHandle ()
         }
     else
-        Actor.ofMsgStateful source count (fun downstream remaining msg ->
+        Operator.ofMsgStateful source count (fun downstream remaining msg ->
             match msg with
             | OnNext x ->
                 let r = remaining - 1
@@ -51,7 +51,7 @@ let take (count: int) (source: Observable<'T>) : Observable<'T> =
 
 /// Skips the first N elements from the source.
 let skip (count: int) (source: Observable<'T>) : Observable<'T> =
-    Actor.forNextStateful source count (fun downstream remaining x ->
+    Operator.forNextStateful source count (fun downstream remaining x ->
         if remaining > 0 then
             remaining - 1
         else
@@ -60,7 +60,7 @@ let skip (count: int) (source: Observable<'T>) : Observable<'T> =
 
 /// Takes elements while predicate returns true.
 let takeWhile (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsgStateful source () (fun downstream () msg ->
+    Operator.ofMsgStateful source () (fun downstream () msg ->
         match msg with
         | OnNext x ->
             if predicate x then
@@ -78,7 +78,7 @@ let takeWhile (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> 
 
 /// Skips elements while predicate returns true.
 let skipWhile (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> =
-    Actor.forNextStateful source true (fun downstream skipping x ->
+    Operator.forNextStateful source true (fun downstream skipping x ->
         if skipping then
             if not (predicate x) then
                 Process.onNext downstream x
@@ -91,7 +91,7 @@ let skipWhile (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> 
 
 /// Emits elements that are different from the previous element.
 let distinctUntilChanged (source: Observable<'T>) : Observable<'T> =
-    Actor.forNextStateful source None (fun downstream last x ->
+    Operator.forNextStateful source None (fun downstream last x ->
         match last with
         | None ->
             Process.onNext downstream x
@@ -105,7 +105,7 @@ let distinctUntilChanged (source: Observable<'T>) : Observable<'T> =
 
 /// Returns elements until the other observable emits.
 let takeUntil (other: Observable<'U>) (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsg2 source other () (fun downstream () choice ->
+    Operator.ofMsg2 source other () (fun downstream () choice ->
         match choice with
         | Choice1Of2 msg ->
             match msg with
@@ -130,7 +130,7 @@ let takeUntil (other: Observable<'U>) (source: Observable<'T>) : Observable<'T> 
 
 /// Returns the last N elements from the source.
 let takeLast (count: int) (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsgStateful source ([]: 'T list) (fun downstream buffer msg ->
+    Operator.ofMsgStateful source ([]: 'T list) (fun downstream buffer msg ->
         match msg with
         | OnNext x ->
             let newBuffer = buffer @ [ x ]
@@ -152,7 +152,7 @@ let takeLast (count: int) (source: Observable<'T>) : Observable<'T> =
 
 /// Takes only the first element. Errors if source is empty.
 let first (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsgStateful source () (fun downstream () msg ->
+    Operator.ofMsgStateful source () (fun downstream () msg ->
         match msg with
         | OnNext x ->
             Process.onNext downstream x
@@ -167,7 +167,7 @@ let first (source: Observable<'T>) : Observable<'T> =
 
 /// Takes only the last element. Errors if source is empty.
 let last (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsgStateful source None (fun downstream latest msg ->
+    Operator.ofMsgStateful source None (fun downstream latest msg ->
         match msg with
         | OnNext x -> Some(Some x)
         | OnError e ->
@@ -184,7 +184,7 @@ let last (source: Observable<'T>) : Observable<'T> =
 
 /// Emits a default value if the source completes without emitting.
 let defaultIfEmpty (defaultValue: 'T) (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsgStateful source false (fun downstream hasValue msg ->
+    Operator.ofMsgStateful source false (fun downstream hasValue msg ->
         match msg with
         | OnNext x ->
             Process.onNext downstream x
@@ -201,7 +201,7 @@ let defaultIfEmpty (defaultValue: 'T) (source: Observable<'T>) : Observable<'T> 
 
 /// Samples the source when the sampler emits.
 let sample (sampler: Observable<'U>) (source: Observable<'T>) : Observable<'T> =
-    Actor.ofMsg2 source sampler (None, false, false) (fun downstream state choice ->
+    Operator.ofMsg2 source sampler (None, false, false) (fun downstream state choice ->
         let (latest, sourceDone, samplerDone) = state
 
         match choice with
@@ -241,14 +241,14 @@ let distinct (source: Observable<'T>) : Observable<'T> = {
         fun downstream ->
             let ref = Process.makeRef ()
 
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe upstream |> ignore
                 let seen = HashSet<'T>()
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->

@@ -17,7 +17,7 @@ let merge (sources: Observable<'T> list) : Observable<'T> = {
                 Process.onCompleted downstream
                 emptyHandle ()
             | _ ->
-                Actor.spawnOp (fun () ->
+                Operator.spawnOp (fun () ->
                     List.iter
                         (fun source ->
                             let ref = Process.makeRef ()
@@ -27,7 +27,7 @@ let merge (sources: Observable<'T> list) : Observable<'T> = {
 
                     let rec loop remaining =
                         agent {
-                            let! (_, rawMsg) = Actor.recvAnyMsg ()
+                            let! (_, rawMsg) = Operator.recvAnyMsg ()
 
                             match unbox<Msg<'T>> rawMsg with
                             | OnNext x ->
@@ -51,7 +51,7 @@ let merge2 (source1: Observable<'T>) (source2: Observable<'T>) : Observable<'T> 
 
 /// Combines the latest values from two observables using a combiner function.
 let combineLatest (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observable<'U>) : Observable<'V> =
-    Actor.ofMsg2 source1 source2 (None, None, false, false) (fun downstream state choice ->
+    Operator.ofMsg2 source1 source2 (None, None, false, false) (fun downstream state choice ->
         let (left, right, leftDone, rightDone) = state
 
         match choice with
@@ -93,7 +93,7 @@ let combineLatest (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2:
 /// Combines source with the latest value from another observable.
 let withLatestFrom (combiner: 'T -> 'U -> 'V) (sampler: Observable<'U>) (source: Observable<'T>) : Observable<'V> =
     // Subscribe sampler (source1) first so its value is available when source emits
-    Actor.ofMsg2 sampler source None (fun downstream latest choice ->
+    Operator.ofMsg2 sampler source None (fun downstream latest choice ->
         match choice with
         | Choice1Of2 msg ->
             match msg with
@@ -121,7 +121,7 @@ let withLatestFrom (combiner: 'T -> 'U -> 'V) (sampler: Observable<'U>) (source:
 let zip (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observable<'U>) : Observable<'V> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref1 = Process.makeRef ()
                 let ref2 = Process.makeRef ()
                 let self1: Observer<'T> = { Pid = Process.selfPid (); Ref = ref1 }
@@ -134,7 +134,7 @@ let zip (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observabl
                 let rec loop state =
                     agent {
                         let (leftDone, rightDone) = state
-                        let! (ref, rawMsg) = Actor.recvAnyMsg ()
+                        let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
                         if ref = ref1 then
                             match unbox<Msg<'T>> rawMsg with
@@ -190,7 +190,7 @@ let concat (sources: Observable<'T> list) : Observable<'T> = {
                 Process.onCompleted downstream
                 emptyHandle ()
             | _ ->
-                Actor.spawnOp (fun () ->
+                Operator.spawnOp (fun () ->
                     let rec subscribeNext (remaining: Observable<'T> list) =
                         match remaining with
                         | [] ->
@@ -203,7 +203,7 @@ let concat (sources: Observable<'T> list) : Observable<'T> = {
 
                             let rec loop () =
                                 agent {
-                                    let! msg = Actor.recvMsg<'T> ref
+                                    let! msg = Operator.recvMsg<'T> ref
 
                                     match msg with
                                     | OnNext x ->
@@ -232,7 +232,7 @@ let amb (sources: Observable<'T> list) : Observable<'T> = {
             | _ ->
                 let total = sources.Length
 
-                Actor.spawnOp (fun () ->
+                Operator.spawnOp (fun () ->
                     sources
                     |> List.iter (fun source ->
                         let ref = Process.makeRef ()
@@ -241,7 +241,7 @@ let amb (sources: Observable<'T> list) : Observable<'T> = {
 
                     let rec loop winner completedCount =
                         agent {
-                            let! (ref, rawMsg) = Actor.recvAnyMsg ()
+                            let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
                             match unbox<Msg<'T>> rawMsg with
                             | OnNext x ->
@@ -296,7 +296,7 @@ let forkJoin (sources: Observable<'T> list) : Observable<'T list> = {
             | _ ->
                 let total = sources.Length
 
-                Actor.spawnOp (fun () ->
+                Operator.spawnOp (fun () ->
                     let refs =
                         sources
                         |> List.mapi (fun idx source ->
@@ -318,7 +318,7 @@ let forkJoin (sources: Observable<'T> list) : Observable<'T list> = {
 
                     let rec loop completedCount =
                         agent {
-                            let! (ref, rawMsg) = Actor.recvAnyMsg ()
+                            let! (ref, rawMsg) = Operator.recvAnyMsg ()
                             let idx = findIdx ref
 
                             match unbox<Msg<'T>> rawMsg with

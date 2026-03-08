@@ -1,9 +1,9 @@
-/// Actor — operator process machinery for reactive pipelines.
+/// Operator — process machinery for reactive operator pipelines.
 ///
 /// Provides the building blocks for operator processes:
 /// selective receive, message loops, and composable operator helpers
 /// (forNext, forNextStateful, ofMsgStateful, ofMsg2).
-module Factor.Beam.Actor
+module Factor.Beam.Operator
 
 open Fable.Core
 open Factor.Agent.Types

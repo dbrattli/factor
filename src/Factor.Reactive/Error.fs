@@ -12,7 +12,7 @@ open Factor.Beam.Agent
 let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let rec subscribeToSource (retriesLeft: int) =
                     let ref = Process.makeRef ()
                     let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
@@ -20,7 +20,7 @@ let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
 
                     let rec loop () =
                         agent {
-                            let! msg = Actor.recvMsg<'T> ref
+                            let! msg = Operator.recvMsg<'T> ref
 
                             match msg with
                             | OnNext x ->
@@ -43,14 +43,14 @@ let retry (maxRetries: int) (source: Observable<'T>) : Observable<'T> = {
 let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Observable<'T> = {
     Subscribe =
         fun downstream ->
-            Actor.spawnOp (fun () ->
+            Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                 source.Subscribe(upstream) |> ignore
 
                 let rec loop () =
                     agent {
-                        let! msg = Actor.recvMsg<'T> ref
+                        let! msg = Operator.recvMsg<'T> ref
 
                         match msg with
                         | OnNext x ->
@@ -69,7 +69,7 @@ let catch (errorHandler: exn -> Observable<'T>) (source: Observable<'T>) : Obser
 
                             let rec innerLoop () =
                                 agent {
-                                    let! innerMsg = Actor.recvMsg<'T> fallbackRef
+                                    let! innerMsg = Operator.recvMsg<'T> fallbackRef
 
                                     match innerMsg with
                                     | OnNext x ->

@@ -96,7 +96,7 @@ Enforcement is structural: each operator process exits when its agent CE loop en
 // The agent CE loop simply doesn't recurse — process exits naturally
 let rec loop () =
     agent {
-        let! msg = Actor.recvMsg<'T> ref
+        let! msg = Operator.recvMsg<'T> ref
         match msg with
         | OnNext x ->
             Process.onNext downstream (mapper x)
@@ -194,7 +194,7 @@ src/Factor.Beam/
 ├── Erlang.fs         # Raw Erlang FFI (receive, monotonicTime)
 ├── Process.fs        # BEAM process primitives + observer message protocol
 ├── Agent.fs          # Agent CE (agent { }), spawn, start, send, call
-├── Actor.fs          # Operator process machinery: selective receive,
+├── Operator.fs       # Operator process machinery: selective receive,
 │                     #   message loops, composable operator helpers
 │                     #   (forNext, forNextStateful, ofMsgStateful, ofMsg2)
 └── erl/
@@ -215,7 +215,7 @@ src/Factor.Beam/
 - `send` — async message send
 - `call` — synchronous request-response
 
-**Actor.fs** — Operator process machinery:
+**Operator.fs** — Operator process machinery:
 - `childLoop` — generic message pump (timers, child messages, EXIT signals)
 - `processTimers` — timed message pump for tests
 - `recvMsg<'T>` — selective receive for single-source operators
@@ -260,7 +260,7 @@ Most operators use the agent CE pattern with selective receive:
 
 ### Operator Helpers
 
-Operators are built from composable templates in `Actor.fs`:
+Operators are built from composable templates in `Operator.fs`:
 
 - **`forNext`** — stateless single-source (map, filter, tap, choose)
 - **`forNextStateful`** — stateful single-source (mapi, skip, skipWhile, distinctUntilChanged, distinct)
@@ -305,7 +305,7 @@ Each operator's mutable state lives in its own spawned process. On BEAM (via Fab
 ```fsharp
 // scan operator — accumulator is recursive loop state in the agent CE
 let scan (initial: 'U) (accumulator: 'U -> 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.ofMsgStateful source initial (fun downstream acc msg ->
+    Operator.ofMsgStateful source initial (fun downstream acc msg ->
         match msg with
         | OnNext x ->
             let newAcc = accumulator acc x
@@ -335,7 +335,7 @@ Most operators use operator helpers that encapsulate the `spawnOp` + `recvMsg` +
 
 ```fsharp
 let map (mapper: 'T -> 'U) (source: Observable<'T>) : Observable<'U> =
-    Actor.forNext source (fun downstream x ->
+    Operator.forNext source (fun downstream x ->
         Process.onNext downstream (mapper x))
 ```
 
@@ -538,4 +538,4 @@ Process crashes in child processes are caught by exit monitors (when `trapExits`
 4. **Rx Contract**: Operator processes self-enforce the grammar by exiting when the agent CE loop ends on terminal events
 5. **BEAM Integration**: Compiled to Erlang via Fable.Beam for lightweight processes and fault tolerance
 6. **Resource Safety**: Handles kill operator processes; EXIT signals propagate through the linked tree for automatic cleanup
-7. **Layered Architecture**: Process → Agent → Actor → Observable → Channel → Composed operators
+7. **Layered Architecture**: Process → Agent → Operator → Observable → Channel → Composed operators
