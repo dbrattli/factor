@@ -25,7 +25,7 @@ let choose (chooser: 'T -> 'U option) (source: Observable<'T>) : Observable<'U> 
 let take (count: int) (source: Observable<'T>) : Observable<'T> =
     if count <= 0 then
         {
-            Subscribe =
+            subscribe =
                 fun downstream ->
                     Process.onCompleted downstream
                     emptyHandle ()
@@ -237,13 +237,13 @@ let sample (sampler: Observable<'U>) (source: Observable<'T>) : Observable<'T> =
 
 /// Filters out all duplicate values (not just consecutive).
 let distinct (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             let ref = Process.makeRef ()
 
             Operator.spawnOp (fun () ->
                 let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
-                source.Subscribe upstream |> ignore
+                source.Subscribe(upstream) |> ignore
                 let seen = HashSet<'T>()
 
                 let rec loop () =

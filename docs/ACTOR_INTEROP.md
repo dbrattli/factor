@@ -71,7 +71,7 @@ Reactive.pushNext observer command
 // Process in a pipeline
 messages
 |> Reactive.map handleCommand
-|> Reactive.subscribe onResult onError onComplete
+|> _.Subscribe(onResult, onError, onComplete)
 ```
 
 ## Design Decisions

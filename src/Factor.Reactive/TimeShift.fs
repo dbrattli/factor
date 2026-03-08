@@ -18,7 +18,7 @@ let private timerCancel (timer: obj) : unit = nativeOnly
 
 /// Creates an observable that emits 0 after the specified delay, then completes.
 let timer (delayMs: int) : Observable<int> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -37,7 +37,7 @@ let timer (delayMs: int) : Observable<int> = {
 
 /// Creates an observable that emits incrementing integers at regular intervals.
 let interval (periodMs: int) : Observable<int> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             let pid =
                 Process.spawnLinked (fun () ->
@@ -66,7 +66,7 @@ let interval (periodMs: int) : Observable<int> = {
 
 /// Delays each emission from the source by the specified time.
 let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
@@ -110,7 +110,7 @@ let delay (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
 /// Emits a value only after the specified time has passed without another emission.
 let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
@@ -163,7 +163,7 @@ let debounce (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
 /// Rate limits emissions to at most one per specified period.
 let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()
@@ -228,7 +228,7 @@ let throttle (ms: int) (source: Observable<'T>) : Observable<'T> = {
 
 /// Errors if no emission occurs within the specified timeout period.
 let timeout (ms: int) (source: Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun downstream ->
             Operator.spawnOp (fun () ->
                 let ref = Process.makeRef ()

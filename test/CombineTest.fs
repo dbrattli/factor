@@ -11,14 +11,14 @@ open Factor.TestUtils
 
 let merge_empty_list_test () =
     let tc = TestCollector<int>()
-    Reactive.merge [] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.merge [] |> _.Subscribe(tc.Observer) |> ignore
     sleep 50
     shouldEqual [] tc.Results
     shouldBeTrue tc.Completed
 
 let merge_single_source_test () =
     let tc = TestCollector<int>()
-    Reactive.merge [ Reactive.ofList [ 1; 2; 3 ] ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.merge [ Reactive.ofList [ 1; 2; 3 ] ] |> _.Subscribe(tc.Observer) |> ignore
     sleep 50
     shouldEqual [ 1; 2; 3 ] tc.Results
     shouldBeTrue tc.Completed
@@ -27,7 +27,7 @@ let merge_two_sources_test () =
     let tc = TestCollector<int>()
     let obs1 = Reactive.ofList [ 1; 2 ]
     let obs2 = Reactive.ofList [ 10; 20 ]
-    Reactive.merge [ obs1; obs2 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.merge [ obs1; obs2 ] |> _.Subscribe(tc.Observer) |> ignore
     sleep 50
     shouldEqual [ 1; 2; 10; 20 ] tc.Results
     shouldBeTrue tc.Completed
@@ -36,7 +36,7 @@ let merge2_test () =
     let tc = TestCollector<int>()
     let obs1 = Reactive.ofList [ 1; 2 ]
     let obs2 = Reactive.ofList [ 10; 20 ]
-    Reactive.merge2 obs1 obs2 |> Reactive.spawn tc.Observer |> ignore
+    Reactive.merge2 obs1 obs2 |> _.Subscribe(tc.Observer) |> ignore
     sleep 50
     shouldEqual [ 1; 2; 10; 20 ] tc.Results
     shouldBeTrue tc.Completed
@@ -45,7 +45,7 @@ let merge_with_empty_test () =
     let tc = TestCollector<int>()
     let obs1 = Reactive.ofList [ 1; 2 ]
     let obs2 = Reactive.empty ()
-    Reactive.merge [ obs1; obs2 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.merge [ obs1; obs2 ] |> _.Subscribe(tc.Observer) |> ignore
     sleep 50
     shouldEqual [ 1; 2 ] tc.Results
     shouldBeTrue tc.Completed
@@ -60,7 +60,7 @@ let combine_latest_basic_test () =
     let obs2 = Reactive.ofList [ "a"; "b" ]
 
     Reactive.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -75,7 +75,7 @@ let combine_latest_with_singles_test () =
     let obs2 = Reactive.single "hello"
 
     Reactive.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -89,7 +89,7 @@ let combine_latest_one_empty_test () =
     let obs2: Observable<string> = Reactive.empty ()
 
     Reactive.combineLatest (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -108,7 +108,7 @@ let with_latest_from_basic_test () =
 
     source
     |> Reactive.withLatestFrom (fun a b -> (a, b)) sampler
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -128,7 +128,7 @@ let zip_basic_test () =
     let obs2 = Reactive.ofList [ "a"; "b"; "c" ]
 
     Reactive.zip (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -142,7 +142,7 @@ let zip_different_lengths_test () =
     let obs2 = Reactive.ofList [ "a"; "b" ]
 
     Reactive.zip (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -156,7 +156,7 @@ let zip_one_empty_test () =
     let obs2: Observable<string> = Reactive.empty ()
 
     Reactive.zip (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -170,7 +170,7 @@ let zip_singles_test () =
     let obs2 = Reactive.single "hello"
 
     Reactive.zip (fun a b -> (a, b)) obs1 obs2
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -186,7 +186,7 @@ let concat_basic_test () =
     let tc = TestCollector<int>()
 
     Reactive.concat [ Reactive.ofList [ 1; 2 ]; Reactive.ofList [ 3; 4 ]; Reactive.ofList [ 5; 6 ] ]
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -198,7 +198,7 @@ let concat2_test () =
     let tc = TestCollector<int>()
 
     Reactive.concat2 (Reactive.ofList [ 1; 2 ]) (Reactive.ofList [ 3; 4 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -208,7 +208,7 @@ let concat2_test () =
 
 let concat_empty_list_test () =
     let tc = TestCollector<int>()
-    Reactive.concat [] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.concat [] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
 
@@ -219,7 +219,7 @@ let concat_with_empty_sources_test () =
     let tc = TestCollector<int>()
 
     Reactive.concat [ Reactive.empty (); Reactive.ofList [ 1; 2 ]; Reactive.empty (); Reactive.ofList [ 3 ] ]
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
@@ -233,7 +233,7 @@ let concat_sequential_async_test () =
     Reactive.concat
         [ Reactive.timer 50 |> Reactive.map (fun _ -> 1)
           Reactive.timer 10 |> Reactive.map (fun _ -> 2) ]
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 200

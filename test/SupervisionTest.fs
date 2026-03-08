@@ -8,11 +8,11 @@ open Factor.TestUtils
 
 // Helper: a factor that crashes during subscribe
 let crashObservable<'T> : Observable<'T> =
-    { Subscribe = fun _ -> failwith "crash!" }
+    { subscribe = fun _ -> failwith "crash!" }
 
 // Helper: a factor that emits a value then crashes
 let emitThenCrash (value: 'T) : Observable<'T> =
-    { Subscribe =
+    { subscribe =
         fun observer ->
             Process.onNext observer value
             failwith "crash after emit" }
@@ -26,7 +26,7 @@ let terminate_produces_error_on_crash_test () =
 
     Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner Terminate None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -38,7 +38,7 @@ let terminate_stops_pipeline_on_crash_test () =
 
     Reactive.ofList [ crashObservable; Reactive.single 42 ]
     |> Transform.mergeInner Terminate None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -55,7 +55,7 @@ let skip_continues_after_crash_test () =
 
     Reactive.ofList [ crashObservable; Reactive.ofList [ 1; 2; 3 ] ]
     |> Transform.mergeInner Skip None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -69,7 +69,7 @@ let skip_completes_when_all_done_test () =
     // Only inner is a crash — should complete with no results
     Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner Skip None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -82,7 +82,7 @@ let skip_multiple_crashes_test () =
 
     Reactive.ofList [ crashObservable; crashObservable; Reactive.single 42; crashObservable ]
     |> Transform.mergeInner Skip None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -95,7 +95,7 @@ let skip_all_crash_completes_empty_test () =
 
     Reactive.ofList [ crashObservable; crashObservable; crashObservable ]
     |> Transform.mergeInner Skip None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -113,7 +113,7 @@ let restart_exhausted_produces_error_test () =
     // Always crashes — Restart(2) means 1 initial + 2 retries = 3 attempts
     Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner (Restart 2) None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 200
@@ -125,7 +125,7 @@ let restart_zero_retries_same_as_terminate_test () =
 
     Reactive.ofList [ crashObservable ]
     |> Transform.mergeInner (Restart 0) None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -137,7 +137,7 @@ let restart_working_factor_completes_normally_test () =
 
     Reactive.ofList [ Reactive.ofList [ 1; 2; 3 ] ]
     |> Transform.mergeInner (Restart 3) None
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100
@@ -154,7 +154,7 @@ let flatmap_spawned_default_terminate_test () =
 
     Reactive.ofList [ 1; 2; 3 ]
     |> Transform.flatMap (fun x -> Reactive.single (x * 10))
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 100

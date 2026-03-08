@@ -288,7 +288,7 @@ This is analogous to OTP: a linked process is like a worker under a `one_for_one
 
 ```fsharp
 // Subscribe returns Handle — subscribing and lifetime are one atomic operation
-let handle = pipeline |> Reactive.spawn observer
+let handle = pipeline.Subscribe(observer)
 // handle.Dispose() — structured shutdown, like supervisor:terminate_child
 
 // Each operator's actor CE loop enforces the Rx grammar:

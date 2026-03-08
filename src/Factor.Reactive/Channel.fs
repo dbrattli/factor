@@ -32,7 +32,7 @@ let channel (agent: Actor<ChannelMsg<'T>>) : Observer<'T> * Observable<'T> =
     let pushObserver: Observer<'T> = { Pid = agent.Pid; Ref = Process.makeRef () }
 
     let observable = {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 Actor.call agent (fun rc -> Subscribe(downstream, rc))
                 { Dispose = fun () -> Actor.send agent (Unsubscribe downstream.Ref) }
@@ -104,7 +104,7 @@ let publish (source: Observable<'T>) : Observable<'T> * (unit -> Handle) =
     let mutable terminal: Msg<'T> option = None
 
     let observable = {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 match terminal with
                 | Some n ->
@@ -196,7 +196,7 @@ let share (source: Observable<'T>) : Observable<'T> =
             sourceHandle <- Some h
 
     {
-        Subscribe =
+        subscribe =
             fun downstream ->
                 let id = nextId
                 nextId <- nextId + 1

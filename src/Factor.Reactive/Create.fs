@@ -10,11 +10,11 @@ open Factor.Actor.Types
 open Factor.Beam
 
 /// Create an observable from a subscribe function.
-let create (subscribe: Observer<'T> -> Handle) : Observable<'T> = { Subscribe = subscribe }
+let create (subscribe: Observer<'T> -> Handle) : Observable<'T> = { subscribe = subscribe }
 
 /// Returns an observable containing a single element.
 let single (value: 'T) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun observer ->
             Process.onNext observer value
             Process.onCompleted observer
@@ -23,18 +23,18 @@ let single (value: 'T) : Observable<'T> = {
 
 /// Returns an observable with no elements that completes immediately.
 let empty<'T> () : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun observer ->
             Process.onCompleted observer
             emptyHandle ()
 }
 
 /// Returns an observable that never emits and never completes.
-let never<'T> () : Observable<'T> = { Subscribe = fun _ -> emptyHandle () }
+let never<'T> () : Observable<'T> = { subscribe = fun _ -> emptyHandle () }
 
 /// Returns an observable that errors immediately with the given error.
 let fail (error: exn) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun observer ->
             Process.onError observer error
             emptyHandle ()
@@ -42,7 +42,7 @@ let fail (error: exn) : Observable<'T> = {
 
 /// Returns an observable from a list of values.
 let ofList (items: 'T list) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun observer ->
             for x in items do
                 Process.onNext observer x
@@ -54,7 +54,7 @@ let ofList (items: 'T list) : Observable<'T> = {
 /// Returns an observable that invokes the factory function
 /// whenever a new observer subscribes.
 let defer (factory: unit -> Observable<'T>) : Observable<'T> = {
-    Subscribe =
+    subscribe =
         fun observer ->
             let f = factory ()
             f.Subscribe(observer)

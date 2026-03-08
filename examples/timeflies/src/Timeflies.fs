@@ -45,6 +45,6 @@ let setupPipeline (sendFn: string -> unit) : Observer<MousePos> * Handle =
 
             sendFn json)
 
-    let handle = pipeline |> Reactive.spawn observer
+    let handle = pipeline |> _.Subscribe(observer)
 
     mouseSender, handle

@@ -11,7 +11,7 @@ open Factor.TestUtils
 
 let single_emits_value_and_completes_test () =
     let tc = TestCollector<int>()
-    Reactive.single 42 |> Reactive.spawn tc.Observer |> ignore
+    Reactive.single 42 |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ 42 ] tc.Results
@@ -20,14 +20,14 @@ let single_emits_value_and_completes_test () =
 
 let single_notifications_in_order_test () =
     let tc = TestCollector<int>()
-    Reactive.single 42 |> Reactive.spawn tc.Observer |> ignore
+    Reactive.single 42 |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ OnNext 42; OnCompleted ] tc.Msgs
 
 let single_with_zero_test () =
     let tc = TestCollector<int>()
-    Reactive.single 0 |> Reactive.spawn tc.Observer |> ignore
+    Reactive.single 0 |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ 0 ] tc.Results
@@ -35,7 +35,7 @@ let single_with_zero_test () =
 
 let single_with_negative_test () =
     let tc = TestCollector<int>()
-    Reactive.single -42 |> Reactive.spawn tc.Observer |> ignore
+    Reactive.single -42 |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ -42 ] tc.Results
@@ -47,7 +47,7 @@ let single_with_negative_test () =
 
 let empty_completes_immediately_test () =
     let tc = TestCollector<int>()
-    Reactive.empty () |> Reactive.spawn tc.Observer |> ignore
+    Reactive.empty () |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [] tc.Results
@@ -56,7 +56,7 @@ let empty_completes_immediately_test () =
 
 let empty_notifications_test () =
     let tc = TestCollector<int>()
-    Reactive.empty () |> Reactive.spawn tc.Observer |> ignore
+    Reactive.empty () |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ OnCompleted ] tc.Msgs
@@ -67,14 +67,14 @@ let empty_notifications_test () =
 
 let never_does_not_emit_or_complete_test () =
     let tc = TestCollector<int>()
-    Reactive.never () |> Reactive.spawn tc.Observer |> ignore
+    Reactive.never () |> _.Subscribe(tc.Observer) |> ignore
     shouldEqual [] tc.Results
     shouldBeFalse tc.Completed
     shouldEqual [] tc.Errors
 
 let never_notifications_test () =
     let tc = TestCollector<int>()
-    Reactive.never () |> Reactive.spawn tc.Observer |> ignore
+    Reactive.never () |> _.Subscribe(tc.Observer) |> ignore
     shouldEqual [] tc.Msgs
 
 // ============================================================================
@@ -83,7 +83,7 @@ let never_notifications_test () =
 
 let fail_emits_error_test () =
     let tc = TestCollector<int>()
-    Reactive.fail (FactorException "test error") |> Reactive.spawn tc.Observer |> ignore
+    Reactive.fail (FactorException "test error") |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [] tc.Results
@@ -92,14 +92,14 @@ let fail_emits_error_test () =
 
 let fail_notifications_test () =
     let tc = TestCollector<int>()
-    Reactive.fail (FactorException "error message") |> Reactive.spawn tc.Observer |> ignore
+    Reactive.fail (FactorException "error message") |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ OnError(FactorException "error message") ] tc.Msgs
 
 let fail_with_empty_message_test () =
     let tc = TestCollector<int>()
-    Reactive.fail (FactorException "") |> Reactive.spawn tc.Observer |> ignore
+    Reactive.fail (FactorException "") |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ FactorException "" ] tc.Errors
@@ -110,7 +110,7 @@ let fail_with_empty_message_test () =
 
 let from_list_emits_all_items_test () =
     let tc = TestCollector<int>()
-    Reactive.ofList [ 1; 2; 3; 4; 5 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.ofList [ 1; 2; 3; 4; 5 ] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ 1; 2; 3; 4; 5 ] tc.Results
@@ -118,7 +118,7 @@ let from_list_emits_all_items_test () =
 
 let from_list_empty_completes_test () =
     let tc = TestCollector<int>()
-    Reactive.ofList [] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.ofList [] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [] tc.Results
@@ -126,7 +126,7 @@ let from_list_empty_completes_test () =
 
 let from_list_single_item_test () =
     let tc = TestCollector<int>()
-    Reactive.ofList [ 42 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.ofList [ 42 ] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ 42 ] tc.Results
@@ -134,14 +134,14 @@ let from_list_single_item_test () =
 
 let from_list_notifications_test () =
     let tc = TestCollector<int>()
-    Reactive.ofList [ 1; 2; 3 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.ofList [ 1; 2; 3 ] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ OnNext 1; OnNext 2; OnNext 3; OnCompleted ] tc.Msgs
 
 let from_list_preserves_order_test () =
     let tc = TestCollector<int>()
-    Reactive.ofList [ 5; 4; 3; 2; 1 ] |> Reactive.spawn tc.Observer |> ignore
+    Reactive.ofList [ 5; 4; 3; 2; 1 ] |> _.Subscribe(tc.Observer) |> ignore
 
     sleep 50
     shouldEqual [ 5; 4; 3; 2; 1 ] tc.Results
@@ -159,12 +159,12 @@ let defer_creates_new_observable_per_subscribe_test () =
             Reactive.single callCount)
 
     let tc1 = TestCollector<int>()
-    observable |> Reactive.spawn tc1.Observer |> ignore
+    observable |> _.Subscribe(tc1.Observer) |> ignore
 
     sleep 50
 
     let tc2 = TestCollector<int>()
-    observable |> Reactive.spawn tc2.Observer |> ignore
+    observable |> _.Subscribe(tc2.Observer) |> ignore
 
     sleep 50
     shouldEqual 2 callCount
@@ -185,7 +185,7 @@ let defer_with_from_list_test () =
     let tc = TestCollector<int>()
 
     Reactive.defer (fun () -> Reactive.ofList [ 10; 20; 30 ])
-    |> Reactive.spawn tc.Observer
+    |> _.Subscribe(tc.Observer)
     |> ignore
 
     sleep 50
