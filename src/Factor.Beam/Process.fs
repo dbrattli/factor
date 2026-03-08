@@ -5,7 +5,7 @@
 module Factor.Beam.Process
 
 open Fable.Core
-open Factor.Agent.Types
+open Factor.Actor.Types
 
 // ============================================================================
 // Erlang FFI for process management

@@ -1,7 +1,7 @@
 /// Tests for error handling operators (retry, catch)
 module Factor.ErrorTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 open Factor.Reactive
 open Factor.TestUtils

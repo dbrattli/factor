@@ -17,7 +17,7 @@
     <Compile Include="Reactive.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Factor.Agent/Factor.Agent.fsproj" />
+    <ProjectReference Include="../Factor.Actor/Factor.Actor.fsproj" />
     <ProjectReference Include="../Factor.Beam/Factor.Beam.fsproj" />
   </ItemGroup>
   <ItemGroup>

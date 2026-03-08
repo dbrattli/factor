@@ -1,7 +1,7 @@
 /// Tests for actor API
 module Factor.ActorTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.Beam
 open Factor.TestUtils
@@ -16,7 +16,7 @@ let actor_spawn_raw_test () =
     output |> Reactive.spawn tc.Observer |> ignore
 
     // Raw spawn — the body is just a function, no message handling
-    Agent.spawn (fun () ->
+    Actor.spawn (fun () ->
         Reactive.pushNext input "spawned"
         Reactive.pushCompleted input)
     |> ignore
@@ -41,7 +41,7 @@ let actor_start_basic_test () =
     output |> Reactive.spawn tc.Observer |> ignore
 
     let pid =
-        Agent.start 0 (fun total msg ->
+        Actor.start 0 (fun total msg ->
             match msg with
             | Add n -> Continue(total + n)
             | GetTotal ->
@@ -52,10 +52,10 @@ let actor_start_basic_test () =
                 Reactive.pushCompleted input
                 Stop)
 
-    Agent.send pid (Add 10)
-    Agent.send pid (Add 20)
-    Agent.send pid (Add 5)
-    Agent.send pid GetTotal
+    Actor.send pid (Add 10)
+    Actor.send pid (Add 20)
+    Actor.send pid (Add 5)
+    Actor.send pid GetTotal
     sleep 50
 
     shouldEqual [ 35 ] tc.Results
@@ -66,7 +66,7 @@ let actor_start_stop_test () =
     output |> Reactive.spawn tc.Observer |> ignore
 
     let pid =
-        Agent.start 0 (fun count msg ->
+        Actor.start 0 (fun count msg ->
             match msg with
             | Add _ ->
                 let newCount = count + 1
@@ -77,10 +77,10 @@ let actor_start_stop_test () =
                 Stop
             | GetTotal -> Continue count)
 
-    Agent.send pid (Add 1)
-    Agent.send pid (Add 1)
-    Agent.send pid (Add 1)
-    Agent.send pid Done
+    Actor.send pid (Add 1)
+    Actor.send pid (Add 1)
+    Actor.send pid (Add 1)
+    Actor.send pid Done
     sleep 50
 
     shouldEqual [ 3 ] tc.Results
@@ -101,7 +101,7 @@ let actor_call_reply_test () =
 
     // Spawn a counter actor using start
     let counter =
-        Agent.start 0 (fun count msg ->
+        Actor.start 0 (fun count msg ->
             match msg with
             | Increment -> Continue(count + 1)
             | GetCount rc ->
@@ -110,11 +110,11 @@ let actor_call_reply_test () =
 
     // Spawn a client actor that increments then queries via call
     let _client =
-        Agent.spawn (fun () ->
-            Agent.send counter Increment
-            Agent.send counter Increment
-            Agent.send counter Increment
-            let count = Agent.call counter (fun rc -> GetCount rc)
+        Actor.spawn (fun () ->
+            Actor.send counter Increment
+            Actor.send counter Increment
+            Actor.send counter Increment
+            let count = Actor.call counter (fun rc -> GetCount rc)
             Reactive.pushNext input count
             Reactive.pushCompleted input)
 

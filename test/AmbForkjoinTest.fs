@@ -1,7 +1,7 @@
 /// Tests for amb/race, forkJoin, distinct, and timeout
 module Factor.AmbForkjoinTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

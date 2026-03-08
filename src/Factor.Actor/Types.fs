@@ -1,20 +1,20 @@
 /// Core types for Factor — the cross-platform contract.
 ///
-/// Contains both abstract agent types and Rx-specific types.
+/// Contains both abstract actor types and Rx-specific types.
 /// No platform code, no dependencies beyond Fable.Core.
-module Factor.Agent.Types
+module Factor.Actor.Types
 
 // ============================================================================
-// Agent types
+// Actor types
 // ============================================================================
 
-/// Opaque typed agent wrapping a platform-specific process identifier.
-type Agent<'Msg> = { Pid: obj }
+/// Opaque typed actor wrapping a platform-specific process identifier.
+type Actor<'Msg> = { Pid: obj }
 
 /// A reply channel that the receiver calls to send a response back to the caller.
 type ReplyChannel<'Reply> = { Reply: 'Reply -> unit }
 
-/// What the agent should do after handling a message.
+/// What the actor should do after handling a message.
 type Next<'State> =
     | Continue of 'State
     | Stop
@@ -59,7 +59,7 @@ let compositeHandle (handles: Handle list) : Handle =
 /// that receives {factor_child, Ref, Msg} messages.
 type Observer<'T> = { Pid: obj; Ref: obj }
 
-/// Channel protocol messages — parameterizes channel agent behavior.
+/// Channel protocol messages — parameterizes channel actor behavior.
 type ChannelMsg<'T> =
     | Notify of Msg<'T>
     | Subscribe of Observer<'T> * ReplyChannel<unit>

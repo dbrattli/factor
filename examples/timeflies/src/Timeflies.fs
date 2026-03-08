@@ -1,6 +1,6 @@
 module Timeflies
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 open Factor.Reactive
 open Factor.Reactive.Builder
@@ -39,7 +39,7 @@ let setupPipeline (sendFn: string -> unit) : Observer<MousePos> * Handle =
             })
 
     let observer =
-        Agent.asObserver (fun lp ->
+        Actor.asObserver (fun lp ->
             let json =
                 sprintf "{\"index\":%d,\"char\":\"%s\",\"x\":%d,\"y\":%d}" lp.Index lp.Char lp.X lp.Y
 

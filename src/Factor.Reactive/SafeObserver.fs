@@ -7,7 +7,7 @@
 /// SafeObserver is only needed at the user-facing subscribe edge.
 module Factor.Reactive.SafeObserver
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 
 /// A safe observer wrapping user callbacks with Rx grammar enforcement.
 type SafeObserver<'T> = {

@@ -24,7 +24,7 @@ build: clean
 
 # Build F# projects only (type check)
 check:
-    dotnet build src/Factor.Agent
+    dotnet build src/Factor.Actor
     dotnet build src/Factor.Beam
     dotnet build src/Factor.Reactive
 

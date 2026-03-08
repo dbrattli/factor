@@ -3,7 +3,7 @@
 /// Re-exports all public types and operators for convenient access.
 module Factor.Reactive.Reactive
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 // ============================================================================
@@ -184,20 +184,20 @@ let catch handler source = Error.catch handler source
 let tapSend send source = Interop.tapSend send source
 
 // ============================================================================
-// Agent types and operators
+// Actor types and operators
 // ============================================================================
 
-open Factor.Agent.Types
-open Factor.Beam.Agent
+open Factor.Actor.Types
+open Factor.Beam.Actor
 
-type Agent<'Msg> = Factor.Agent.Types.Agent<'Msg>
-type AgentOp<'T> = Factor.Beam.Agent.AgentOp<'T>
-type ReplyChannel<'Reply> = Factor.Agent.Types.ReplyChannel<'Reply>
-type Next<'State> = Factor.Agent.Types.Next<'State>
+type Actor<'Msg> = Factor.Actor.Types.Actor<'Msg>
+type ActorOp<'T> = Factor.Beam.Actor.ActorOp<'T>
+type ReplyChannel<'Reply> = Factor.Actor.Types.ReplyChannel<'Reply>
+type Next<'State> = Factor.Actor.Types.Next<'State>
 
-let agent = Factor.Beam.Agent.agent
-let spawnAgent body = Factor.Beam.Agent.spawn body
-let startAgent initialState handler = Factor.Beam.Agent.start initialState handler
-let sendAgent agent msg = Factor.Beam.Agent.send agent msg
-let selfAgent () = Factor.Beam.Agent.self ()
-let callAgent agent msgFactory = Factor.Beam.Agent.call agent msgFactory
+let actor = Factor.Beam.Actor.actor
+let spawnActor body = Factor.Beam.Actor.spawn body
+let startActor initialState handler = Factor.Beam.Actor.start initialState handler
+let sendActor actor msg = Factor.Beam.Actor.send actor msg
+let selfActor () = Factor.Beam.Actor.self ()
+let callActor actor msgFactory = Factor.Beam.Actor.call actor msgFactory

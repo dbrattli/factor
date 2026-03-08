@@ -1,7 +1,7 @@
 /// Tests for transform operators (map, flatMap, concatMap, scan, reduce)
 module Factor.TransformTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

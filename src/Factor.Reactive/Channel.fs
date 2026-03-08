@@ -1,10 +1,10 @@
 /// Channel types for Factor.Reactive
 ///
 /// Channels are Observers (push side) and Observables (subscribe side).
-/// Each channel is backed by an Agent that defines its behavior.
+/// Each channel is backed by an Actor that defines its behavior.
 module Factor.Reactive.Channel
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
 
 // ============================================================================
@@ -13,29 +13,29 @@ open Factor.Beam
 
 /// Send an OnNext value to a channel observer.
 let pushNext (observer: Observer<'T>) (value: 'T) : unit =
-    Agent.send { Pid = observer.Pid } (Notify(OnNext value))
+    Actor.send { Pid = observer.Pid } (Notify(OnNext value))
 
 /// Send an OnError to a channel observer.
 let pushError (observer: Observer<'T>) (error: exn) : unit =
-    Agent.send { Pid = observer.Pid } (Notify(OnError error))
+    Actor.send { Pid = observer.Pid } (Notify(OnError error))
 
 /// Send OnCompleted to a channel observer.
 let pushCompleted (observer: Observer<'T>) : unit =
-    Agent.send { Pid = observer.Pid } (Notify OnCompleted)
+    Actor.send { Pid = observer.Pid } (Notify OnCompleted)
 
 // ============================================================================
 // Channel constructors
 // ============================================================================
 
-/// Wraps an Agent<ChannelMsg<'T>> into an Observer (push side) and Observable (subscribe side).
-let channel (agent: Agent<ChannelMsg<'T>>) : Observer<'T> * Observable<'T> =
+/// Wraps an Actor<ChannelMsg<'T>> into an Observer (push side) and Observable (subscribe side).
+let channel (agent: Actor<ChannelMsg<'T>>) : Observer<'T> * Observable<'T> =
     let pushObserver: Observer<'T> = { Pid = agent.Pid; Ref = Process.makeRef () }
 
     let observable = {
         Subscribe =
             fun downstream ->
-                Agent.call agent (fun rc -> Subscribe(downstream, rc))
-                { Dispose = fun () -> Agent.send agent (Unsubscribe downstream.Ref) }
+                Actor.call agent (fun rc -> Subscribe(downstream, rc))
+                { Dispose = fun () -> Actor.send agent (Unsubscribe downstream.Ref) }
     }
 
     (pushObserver, observable)
@@ -43,10 +43,10 @@ let channel (agent: Agent<ChannelMsg<'T>>) : Observer<'T> * Observable<'T> =
 /// Creates a multicast channel backed by a stateful agent.
 ///
 /// Broadcasts messages to all subscribers. Subscribe is synchronous
-/// (via Agent.call) to prevent races between subscribe and first send.
+/// (via Actor.call) to prevent races between subscribe and first send.
 let multicast<'T> () : Observer<'T> * Observable<'T> =
     let agent =
-        Agent.start ([] : (obj * Observer<'T>) list) (fun subscribers msg ->
+        Actor.start ([] : (obj * Observer<'T>) list) (fun subscribers msg ->
             match msg with
             | Notify notification ->
                 for (_, sub) in subscribers do
@@ -73,7 +73,7 @@ type private SingleState<'T> =
 
 let singleSubscriber<'T> () : Observer<'T> * Observable<'T> =
     let agent =
-        Agent.start (Waiting [] : SingleState<'T>) (fun state msg ->
+        Actor.start (Waiting [] : SingleState<'T>) (fun state msg ->
             match state, msg with
             | Waiting pending, Notify n -> Continue(Waiting(n :: pending))
             | Waiting pending, Subscribe(obs, rc) ->

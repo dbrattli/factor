@@ -4,9 +4,9 @@
 module Factor.Reactive.Transform
 
 open System.Collections.Generic
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 
 /// Returns an observable whose elements are the result of invoking
 /// the mapper function on each element of the source.
@@ -212,7 +212,7 @@ let switchInner (source: Observable<Observable<'T>>) : Observable<'T> = {
                 source.Subscribe(outerSelf) |> ignore
 
                 let rec loop outerDone currentInnerRef =
-                    agent {
+                    actor {
                         let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
                         if Process.refEquals ref outerRef then
@@ -334,7 +334,7 @@ let groupBy (keySelector: 'T -> 'K) (source: Observable<'T>) : Observable<'K * O
                 source.Subscribe(upstream) |> ignore
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with

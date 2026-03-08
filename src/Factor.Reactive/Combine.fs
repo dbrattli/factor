@@ -4,9 +4,9 @@
 module Factor.Reactive.Combine
 
 open System.Collections.Generic
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 
 /// Merges multiple observable sequences into one.
 let merge (sources: Observable<'T> list) : Observable<'T> = {
@@ -26,7 +26,7 @@ let merge (sources: Observable<'T> list) : Observable<'T> = {
                         sources
 
                     let rec loop remaining =
-                        agent {
+                        actor {
                             let! (_, rawMsg) = Operator.recvAnyMsg ()
 
                             match unbox<Msg<'T>> rawMsg with
@@ -132,7 +132,7 @@ let zip (combiner: 'T -> 'U -> 'V) (source1: Observable<'T>) (source2: Observabl
                 let rightQueue = Queue<'U>()
 
                 let rec loop state =
-                    agent {
+                    actor {
                         let (leftDone, rightDone) = state
                         let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
@@ -195,14 +195,14 @@ let concat (sources: Observable<'T> list) : Observable<'T> = {
                         match remaining with
                         | [] ->
                             Process.onCompleted downstream
-                            agent { return () }
+                            actor { return () }
                         | current :: rest ->
                             let ref = Process.makeRef ()
                             let upstream: Observer<'T> = { Pid = Process.selfPid (); Ref = ref }
                             current.Subscribe(upstream) |> ignore
 
                             let rec loop () =
-                                agent {
+                                actor {
                                     let! msg = Operator.recvMsg<'T> ref
 
                                     match msg with
@@ -240,7 +240,7 @@ let amb (sources: Observable<'T> list) : Observable<'T> = {
                         source.Subscribe(self) |> ignore)
 
                     let rec loop winner completedCount =
-                        agent {
+                        actor {
                             let! (ref, rawMsg) = Operator.recvAnyMsg ()
 
                             match unbox<Msg<'T>> rawMsg with
@@ -317,7 +317,7 @@ let forkJoin (sources: Observable<'T> list) : Observable<'T list> = {
                         search refs
 
                     let rec loop completedCount =
-                        agent {
+                        actor {
                             let! (ref, rawMsg) = Operator.recvAnyMsg ()
                             let idx = findIdx ref
 

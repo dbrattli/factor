@@ -1,7 +1,7 @@
 /// Tests for combining operators (merge, combineLatest, withLatestFrom, zip)
 module Factor.CombineTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

@@ -1,7 +1,7 @@
 /// Tests for share and publish operators
 module Factor.ShareTest
 
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Reactive
 open Factor.TestUtils
 

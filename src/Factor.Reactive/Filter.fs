@@ -4,9 +4,9 @@
 module Factor.Reactive.Filter
 
 open System.Collections.Generic
-open Factor.Agent.Types
+open Factor.Actor.Types
 open Factor.Beam
-open Factor.Beam.Agent
+open Factor.Beam.Actor
 
 /// Filters elements based on a predicate.
 let filter (predicate: 'T -> bool) (source: Observable<'T>) : Observable<'T> =
@@ -247,7 +247,7 @@ let distinct (source: Observable<'T>) : Observable<'T> = {
                 let seen = HashSet<'T>()
 
                 let rec loop () =
-                    agent {
+                    actor {
                         let! msg = Operator.recvMsg<'T> ref
 
                         match msg with

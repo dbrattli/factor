@@ -21,7 +21,7 @@ just all      # Check and build
 Or directly:
 
 ```sh
-dotnet build src/Factor.Agent && dotnet build src/Factor.Beam && dotnet build src/Factor.Reactive
+dotnet build src/Factor.Actor && dotnet build src/Factor.Beam && dotnet build src/Factor.Reactive
 ```
 
 Fable.Beam compiler is expected at `../fable/fable-beam/src/Fable.Cli`.
@@ -29,33 +29,33 @@ Fable.Beam compiler is expected at `../fable/fable-beam/src/Fable.Cli`.
 ## Architecture
 
 ```text
-Process → Agent → Observer/Observable → Channel → Composed Operators
+Process → Actor → Observer/Observable → Channel → Composed Operators
 ```
 
-Three F# projects with clean dependencies: `Factor.Reactive → Factor.Beam → Factor.Agent`
+Three F# projects with clean dependencies: `Factor.Reactive → Factor.Beam → Factor.Actor`
 
 Every operator in the pipeline is a BEAM process. Messages flow between processes via mailbox sends. Creation operators (`ofList`, `single`, `empty`, `fail`) are the exception — they send messages directly to the downstream process's mailbox without spawning a process of their own.
 
-### Core Types (src/Factor.Agent/Types.fs)
+### Core Types (src/Factor.Actor/Types.fs)
 
 - **Msg<'T>**: Rx grammar atoms (`OnNext of 'T`, `OnError of exn`, `OnCompleted`)
 - **Handle**: Resource cleanup handle with `Dispose: unit -> unit`
 - **Observer<'T>**: Process endpoint `{ Pid: obj; Ref: obj }` — identifies a downstream process to send messages to
 - **Observable<'T>**: Lazy push-based stream with `Subscribe: Observer<'T> -> Handle`
-- **Agent<'Msg>**: Typed wrapper around a BEAM process Pid
+- **Actor<'Msg>**: Typed wrapper around a BEAM process Pid
 - **ChannelMsg<'T>**: Channel protocol (`Notify of Msg<'T>`, `Subscribe of Observer<'T> * ReplyChannel<unit>`, `Unsubscribe of obj`)
-- **ReplyChannel<'Reply>**: Callback for synchronous request-response via `Agent.call`
-- **Next<'State>**: Agent handler return type (`Continue of 'State` | `Stop`)
+- **ReplyChannel<'Reply>**: Callback for synchronous request-response via `Actor.call`
+- **Next<'State>**: Actor handler return type (`Continue of 'State` | `Stop`)
 
 ### Project Structure
 
-**Factor.Agent** — Abstract types (cross-platform contract):
-- `Types.fs`: All shared types (Agent, Observer, Observable, Msg, Handle, ChannelMsg, etc.)
+**Factor.Actor** — Abstract types (cross-platform contract):
+- `Types.fs`: All shared types (Actor, Observer, Observable, Msg, Handle, ChannelMsg, etc.)
 
 **Factor.Beam** — BEAM implementation:
 - `Erlang.fs`: Raw Erlang FFI (receive, monotonicTime)
 - `Process.fs`: BEAM process primitives + observer message protocol (`spawnLinked`, `killProcess`, `trapExits`, `selfPid`, `makeRef`, `onNext`, `onError`, `onCompleted`, `refEquals`)
-- `Agent.fs`: Typed agent abstraction — `agent { }` CE, `spawn`, `start`, `send`, `call`
+- `Agent.fs`: Typed actor abstraction — `actor { }` CE, `spawn`, `start`, `send`, `call`
 - `Operator.fs`: Operator process machinery — selective receive (`recvMsg`, `recvAnyMsg`), `spawnOp`, operator templates (`forNext`, `forNextStateful`, `ofMsgStateful`, `ofMsg2`), `childLoop`, `processTimers`
 - `erl/factor_actor.erl`: Process spawning, selective receive, exit/child handler registries
 - `erl/factor_timer.erl`: Timer scheduling via `erlang:send_after`
@@ -74,7 +74,7 @@ Every operator in the pipeline is a BEAM process. Messages flow between processe
 
 ### State Management
 
-Every operator is its own BEAM process. Mutable state (process dictionary, `Dictionary`, `HashSet`) is local to that operator's process and cannot be captured across process boundaries. Channels (`multicast()`, `singleSubscriber()`) are backed by `Agent<ChannelMsg<'T>>`. Time-based operators use Erlang FFI via `factor_timer:schedule` and `factor_timer:cancel`.
+Every operator is its own BEAM process. Mutable state (process dictionary, `Dictionary`, `HashSet`) is local to that operator's process and cannot be captured across process boundaries. Channels (`multicast()`, `singleSubscriber()`) are backed by `Actor<ChannelMsg<'T>>`. Time-based operators use Erlang FFI via `factor_timer:schedule` and `factor_timer:cancel`.
 
 ### Rx Contract
 
@@ -87,7 +87,7 @@ The library enforces the Rx grammar: `OnNext* (OnError | OnCompleted)?`
 
 Two message protocols:
 - `{factor_child, Ref, Msg}` — operator-to-operator data flow (via `Process.onNext`/`onError`/`onCompleted`)
-- `{factor_msg, Msg}` — agent messages (via `Agent.send`), used by channel push helpers
+- `{factor_msg, Msg}` — actor messages (via `Actor.send`), used by channel push helpers
 
 Operator processes also handle `{factor_timer, Ref, Callback}` (timer callbacks) and `{'EXIT', Pid, Reason}` (supervision). Timer callbacks fire as side effects during `recvMsg`/`recvAnyMsg`.
 
