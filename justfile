@@ -112,3 +112,16 @@ build-timeflies-python:
 # Run timeflies-python demo
 run-timeflies-python: build-timeflies-python
     cd {{timeflies_py_out}} && uv run --project ../pyproject.toml python program.py
+
+# --- Timeflies JS example ---
+
+timeflies_js_path := "examples/timeflies-js"
+timeflies_js_src := timeflies_js_path / "src"
+
+# Build timeflies-js: F# → JavaScript via Fable
+build-timeflies-js:
+    cd {{timeflies_js_path}} && dotnet fable src --noCache
+
+# Run timeflies-js demo on http://localhost:3000
+run-timeflies-js: build-timeflies-js
+    cd {{timeflies_js_path}} && npx vite

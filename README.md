@@ -121,7 +121,7 @@ src/Fable.Actor/
 |----------|------------|-------------------|
 | .NET | `MailboxProcessor` | Async + threads |
 | Python | `MailboxProcessor` (Fable) | asyncio |
-| JS | `MailboxProcessor` (Fable) | Promises (TBD) |
+| JS | `MailboxProcessor` (Fable) | Promises |
 | BEAM | Native process | Erlang processes + mailbox |
 
 On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'Msg>`. No platform-specific runtime needed — Fable's built-in `MailboxProcessor` handles everything. On BEAM, actors map to real Erlang processes with native supervision.
@@ -152,6 +152,18 @@ On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'M
 ## Why?
 
 `MailboxProcessor` assumes shared memory — closures can capture mutable state, and multiple agents can reference the same objects. On BEAM, each actor is an isolated process with its own heap, so shared mutable references silently break. Fable.Actor provides a clean actor abstraction where all communication goes through message passing (`send`/`receive`/`call`), making it safe to compile to native processes on BEAM while also working on Python and .NET.
+
+## Examples
+
+### Timeflies
+
+The classic Rx "time flies like an arrow" demo — each letter follows your mouse with an increasing delay, creating a trailing snake effect. One actor per letter, a distributor fans out mouse events.
+
+| Target | Run | UI |
+|--------|-----|----|
+| BEAM | `just run-timeflies` | Cowboy WebSocket server |
+| Python | `just run-timeflies-python` | tkinter |
+| JS | `just run-timeflies-js` | React (Feliz) + Vite |
 
 ## License
 
