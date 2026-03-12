@@ -145,9 +145,7 @@ Each target provides a native `factor_platform` module:
 
 ## Why?
 
-`MailboxProcessor` doesn't work across Fable targets. Fable.Actor provides the same typed actor abstraction — spawn, send, receive, request-reply — compiled to native concurrency on each platform. On BEAM, you also get process links and supervision for free.
-
-The library is designed as a foundation. Rx operators (map, filter, merge, flatMap, etc.) belong in [AsyncRx](https://github.com/dbrattli/AsyncRx), which can use `actor { }` instead of `MailboxProcessor` to gain cross-platform support.
+`MailboxProcessor` assumes shared memory — closures can capture mutable state, and multiple agents can reference the same objects. On BEAM, each actor is an isolated process with its own heap, so shared mutable references silently break. Fable.Actor provides a clean actor abstraction where all communication goes through message passing (`send`/`receive`/`call`), making it safe to compile to native processes on BEAM while also working on Python and .NET.
 
 ## License
 
