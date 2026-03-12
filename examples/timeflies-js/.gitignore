@@ -1,0 +1,7 @@
+node_modules/
+src/bin/
+src/obj/
+src/**/*.fs.js
+src/**/*.fs.js.map
+src/fable_modules/
+dist/
