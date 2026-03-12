@@ -37,7 +37,7 @@ type IActorPlatform =
     abstract timerSchedule: ms: int * callback: (unit -> unit) -> obj
     abstract timerCancel: timer: obj -> unit
 
-[<ImportAll("factor_platform")>]
+[<ImportAll("fable_actor_platform")>]
 let platform: IActorPlatform = nativeOnly
 
 #endif

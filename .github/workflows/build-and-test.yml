@@ -18,6 +18,20 @@ jobs:
         with:
           dotnet-version: 10.x
 
+      - name: Setup Erlang/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          rebar3-version: '3'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
       - name: Install just
         uses: extractions/setup-just@v3
 
@@ -32,6 +46,15 @@ jobs:
 
       - name: Run .NET tests
         run: dotnet run --project test
+
+      - name: Compile tests to Python
+        run: dotnet fable test --lang python --outDir build/tests --exclude Fable.Core --noCache
+
+      - name: Run Python tests
+        run: cd build/tests && uv run --project ../../pyproject.toml python program.py
+
+      - name: Build BEAM and run tests
+        run: just test-beam
 
       - name: Pack NuGet
         run: just pack

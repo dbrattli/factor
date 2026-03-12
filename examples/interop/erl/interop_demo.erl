@@ -19,10 +19,10 @@ run() ->
 
     %% === Demo 1: Fire-and-forget (Erlang → F#) ===
     %%
-    %% Actor.send wraps messages as {factor_msg, Msg}, so Erlang must do the same.
+    %% Actor.send wraps messages as {fable_actor_msg, Msg}, so Erlang must do the same.
     %% F# DU: HelloFrom of string → Erlang tuple: {hello_from, <<"Joe">>}
     io:format("  [Joe/Erlang] Saying hello to Dag...~n"),
-    factor_actor:send_msg(DagPid, {hello_from, <<"Joe">>}),
+    fable_actor_core:send_msg(DagPid, {hello_from, <<"Joe">>}),
 
     %% Wait for Dag's raw reply (no envelope — just a binary)
     receive
@@ -39,11 +39,11 @@ run() ->
     io:format("  [Joe/Erlang] Asking Dag his full name (call pattern)...~n"),
     Ref = make_ref(),
     Me = self(),  %% Capture caller pid BEFORE the lambda (self() in lambda runs in callee's process!)
-    Rc = #{reply => fun(V) -> Me ! {factor_reply, Ref, V} end},
-    factor_actor:send_msg(DagPid, {ask_name, Rc}),
+    Rc = #{reply => fun(V) -> Me ! {fable_actor_reply, Ref, V} end},
+    fable_actor_core:send_msg(DagPid, {ask_name, Rc}),
 
     receive
-        {factor_reply, Ref, Name} ->
+        {fable_actor_reply, Ref, Name} ->
             io:format("  [Joe/Erlang] Dag says his name is: ~s~n", [Name])
     after 1000 ->
         io:format("  Timeout waiting for name!~n")
