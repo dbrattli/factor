@@ -15,3 +15,14 @@ type Next<'State> =
 type ChildExited = { Pid: obj; Reason: obj }
 
 exception ProcessExitException of string
+
+/// What the supervisor should do when a child crashes.
+[<RequireQualifiedAccess>]
+type Directive =
+    | Restart
+    | Stop
+    | Escalate
+
+/// Supervision strategy — consulted when a child crashes.
+type Strategy =
+    | OneForOne of decider: (exn -> Directive)

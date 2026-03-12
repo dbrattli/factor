@@ -247,6 +247,100 @@ let receiveAndReply<'Msg, 'Reply> (inbox: Actor<obj>) : Async<'Msg * ReplyChanne
 
 #endif
 
+// ============================================================================
+// Supervision
+// ============================================================================
+
+/// A supervised child — wraps an actor ref with restart capability.
+type SupervisedChild<'ParentMsg, 'Msg> = {
+    mutable Actor: Actor<'Msg>
+    Body: Actor<'Msg> -> ActorOp<unit>
+    Strategy: Strategy
+}
+
+#if FABLE_COMPILER_BEAM
+
+/// Check if a message is a ChildExited notification.
+let tryAsChildExited (msg: obj) : ChildExited option =
+    try
+        Some(unbox<ChildExited> msg)
+    with _ ->
+        None
+
+/// Spawn a supervised child actor. Retains the body for restart.
+let spawnSupervised
+    (parent: Actor<'ParentMsg>)
+    (strategy: Strategy)
+    (body: Actor<'Msg> -> ActorOp<unit>)
+    : SupervisedChild<'ParentMsg, 'Msg> =
+    let child = spawnLinked parent body
+    { Actor = child; Body = body; Strategy = strategy }
+
+/// Handle a ChildExited event for a supervised child.
+/// Returns true if the child was restarted, false if stopped/not matching.
+/// Raises ProcessExitException if Escalate.
+let handleChildExit
+    (parent: Actor<'ParentMsg>)
+    (supervised: SupervisedChild<'ParentMsg, 'Msg>)
+    (exited: ChildExited)
+    : bool =
+    let (OneForOne decider) = supervised.Strategy
+
+    let ex =
+        match exited.Reason with
+        | :? exn as e -> e
+        | r -> ProcessExitException(sprintf "%A" r)
+
+    match decider ex with
+    | Directive.Stop -> false
+    | Directive.Escalate -> raise ex
+    | Directive.Restart ->
+        let newChild = spawnLinked parent supervised.Body
+        supervised.Actor <- newChild
+        true
+
+#else
+
+/// Check if a message is a ChildExited notification.
+let tryAsChildExited (msg: obj) : ChildExited option =
+    match msg with
+    | :? ChildExited as ce -> Some ce
+    | _ -> None
+
+/// Spawn a supervised child actor. Retains the body for restart.
+let spawnSupervised
+    (parent: Actor<'ParentMsg>)
+    (strategy: Strategy)
+    (body: Actor<'Msg> -> Async<unit>)
+    : SupervisedChild<'ParentMsg, 'Msg> =
+    let child = spawnLinked parent body
+    { Actor = child; Body = body; Strategy = strategy }
+
+/// Handle a ChildExited event for a supervised child.
+/// Returns true if the child was restarted, false if stopped/not matching.
+/// Raises ProcessExitException if Escalate.
+let handleChildExit
+    (parent: Actor<'ParentMsg>)
+    (supervised: SupervisedChild<'ParentMsg, 'Msg>)
+    (exited: ChildExited)
+    : bool =
+    let (OneForOne decider) = supervised.Strategy
+
+    let ex =
+        match exited.Reason with
+        | :? exn as e -> e
+        | r -> ProcessExitException(sprintf "%A" r)
+
+    match decider ex with
+    | Directive.Stop -> false
+    | Directive.Escalate -> raise ex
+    | Directive.Restart ->
+        let newChild = spawnLinked parent supervised.Body
+        supervised.Actor <- newChild
+        true
+
+#endif
+
 // === Common API (both platforms) ===
 
 /// Send a message (fire and forget).

@@ -334,6 +334,102 @@ let actor_linked_crash_test () =
     }
 
 // ============================================================================
+// supervised actor tests
+// ============================================================================
+
+/// spawnSupervised restarts a crashed child when strategy says Restart.
+let actor_supervised_restart_test () =
+    actor {
+        let mutable crashCount = 0
+        let mutable msgAfterRestart = ""
+
+        let parent: Actor<obj> =
+            spawn (fun inbox ->
+                trapExits ()
+
+                let child =
+                    spawnSupervised inbox (OneForOne(fun _ex -> Directive.Restart)) (fun childInbox ->
+                        crashCount <- crashCount + 1
+
+                        let rec loop () =
+                            actor {
+                                let! msg = childInbox.Receive()
+
+                                if msg = "crash" then
+                                    failwith "intentional crash"
+                                else
+                                    msgAfterRestart <- msg
+
+                                return! loop ()
+                            }
+
+                        loop ())
+
+                let rec loop () =
+                    actor {
+                        let! msg = inbox.Receive()
+
+                        match tryAsChildExited msg with
+                        | Some exited ->
+                            let _restarted = handleChildExit inbox child exited
+                            ()
+                        | None -> ()
+
+                        return! loop ()
+                    }
+
+                // Make the child crash, then send a message after restart
+                send child.Actor "crash"
+                loop ())
+
+        do! sleep 100
+
+        // After restart, send a normal message to the restarted child
+        // The parent received the EXIT, restarted the child — crashCount should be 2
+        shouldEqual 2 crashCount
+    }
+
+/// spawnSupervised stops child when strategy says Stop.
+let actor_supervised_stop_test () =
+    actor {
+        let mutable stopped = false
+
+        let parent: Actor<obj> =
+            spawn (fun inbox ->
+                trapExits ()
+
+                let child =
+                    spawnSupervised inbox (OneForOne(fun _ex -> Directive.Stop)) (fun childInbox ->
+                        let rec loop () =
+                            actor {
+                                let! _msg = childInbox.Receive()
+                                failwith "crash!"
+                                return! loop ()
+                            }
+
+                        loop ())
+
+                let rec loop () =
+                    actor {
+                        let! msg = inbox.Receive()
+
+                        match tryAsChildExited msg with
+                        | Some exited ->
+                            let restarted = handleChildExit inbox child exited
+                            stopped <- not restarted
+                        | None -> ()
+
+                        return! loop ()
+                    }
+
+                send child.Actor "boom"
+                loop ())
+
+        do! sleep 100
+        shouldBeTrue stopped
+    }
+
+// ============================================================================
 // kill tests
 // ============================================================================
 

@@ -44,10 +44,14 @@ let mainAsync =
         // supervision
         let! r13 = runTest "actor_linked_crash" actor_linked_crash_test
 
-        // kill
-        let! r14 = runTest "actor_kill" actor_kill_test
+        // supervised actors
+        let! r14 = runTest "actor_supervised_restart" actor_supervised_restart_test
+        let! r15 = runTest "actor_supervised_stop" actor_supervised_stop_test
 
-        let results = [ r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11; r12; r13; r14 ]
+        // kill
+        let! r16 = runTest "actor_kill" actor_kill_test
+
+        let results = [ r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11; r12; r13; r14; r15; r16 ]
         let passed = results |> List.filter id |> List.length
         let total = results.Length
         printfn ""
