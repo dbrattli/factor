@@ -7,6 +7,7 @@ fable_repo := justfile_directory() / "../fable/beam-improvements-17"
 fable := if dev == "true" { "dotnet run --project " + fable_repo / "src/Fable.Cli" + " --" } else { "dotnet fable" }
 fable_python := "dotnet run --project " + justfile_directory() / "../fable/main/src/Fable.Cli" + " --"
 
+src_path := "src/Fable.Actor"
 build_path := "build"
 test_path := "test"
 
@@ -42,6 +43,21 @@ restore:
 
 # Build and check
 all: check build
+
+# --- Packaging ---
+
+# Create NuGet package
+pack:
+    dotnet build {{src_path}}
+    dotnet pack {{src_path}} -c Release
+
+# Create NuGet package with specific version (used in CI)
+pack-version version:
+    dotnet pack {{src_path}} -c Release -p:PackageVersion={{version}} -p:InformationalVersion={{version}}
+
+# Run EasyBuild.ShipIt for release management
+shipit *args:
+    dotnet shipit --pre-release rc {{args}}
 
 # --- Tests ---
 

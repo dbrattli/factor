@@ -15,6 +15,13 @@
         "fantomas"
       ],
       "rollForward": false
+    },
+    "easybuild.shipit": {
+      "version": "1.0.0",
+      "commands": [
+        "shipit"
+      ],
+      "rollForward": false
     }
   }
 }

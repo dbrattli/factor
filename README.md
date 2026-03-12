@@ -123,7 +123,7 @@ schedule 1000 (fun () -> send ticker "tick") |> ignore
 
 ## Architecture
 
-```
+```text
 src/Fable.Actor/
   Types.fs      — ReplyChannel, Next<'State>, ChildExited, Directive, Strategy
   Platform.fs   — BEAM: IActorPlatform + [<ImportAll("factor_platform")>]
@@ -134,31 +134,31 @@ src/Fable.Actor/
 
 ### Platform Strategy
 
-| Platform | Actor wraps | Concurrency model |
-|----------|------------|-------------------|
-| .NET | `MailboxProcessor` | Async + threads |
-| Python | `MailboxProcessor` (Fable) | asyncio |
-| JS | `MailboxProcessor` (Fable) | Promises |
-| BEAM | Native process | Erlang processes + mailbox |
+| Platform |        Actor wraps         |     Concurrency model      |
+| -------- | -------------------------- | -------------------------- |
+| .NET     | `MailboxProcessor`         | Async + threads            |
+| Python   | `MailboxProcessor` (Fable) | asyncio                    |
+| JS       | `MailboxProcessor` (Fable) | Promises                   |
+| BEAM     | Native process             | Erlang processes + mailbox |
 
 On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'Msg>`. No platform-specific runtime needed — Fable's built-in `MailboxProcessor` handles everything. On BEAM, actors map to real Erlang processes with native supervision.
 
 ### API
 
-| Function | Description |
-|----------|-------------|
-| `spawn body` | Spawn an actor: `spawn (fun inbox -> actor { ... })` |
-| `spawnLinked parent body` | Spawn a linked child actor (EXIT on crash) |
-| `spawnSupervised parent strategy body` | Spawn a child with supervision (auto-restart) |
-| `handleChildExit parent supervised exited` | Apply strategy to a crashed child |
-| `tryAsChildExited msg` | Check if a message is a `ChildExited` notification |
-| `start state handler` | Stateful actor with message handler loop |
-| `send actor msg` | Fire-and-forget message send |
-| `call actor msgFactory` | Async request-response (returns `ActorOp<'Reply>`) |
-| `kill actor` | Kill an actor immediately |
-| `trapExits ()` | Enable supervision (EXIT signals become messages) |
-| `schedule ms callback` | Schedule a timer callback |
-| `cancelTimer timer` | Cancel a scheduled timer |
+|                  Function                  |                     Description                      |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `spawn body`                               | Spawn an actor: `spawn (fun inbox -> actor { ... })` |
+| `spawnLinked parent body`                  | Spawn a linked child actor (EXIT on crash)           |
+| `spawnSupervised parent strategy body`     | Spawn a child with supervision (auto-restart)        |
+| `handleChildExit parent supervised exited` | Apply strategy to a crashed child                    |
+| `tryAsChildExited msg`                     | Check if a message is a `ChildExited` notification   |
+| `start state handler`                      | Stateful actor with message handler loop             |
+| `send actor msg`                           | Fire-and-forget message send                         |
+| `call actor msgFactory`                    | Async request-response (returns `ActorOp<'Reply>`)   |
+| `kill actor`                               | Kill an actor immediately                            |
+| `trapExits ()`                             | Enable supervision (EXIT signals become messages)    |
+| `schedule ms callback`                     | Schedule a timer callback                            |
+| `cancelTimer timer`                        | Cancel a scheduled timer                             |
 
 ### Design Principles
 
@@ -179,11 +179,11 @@ On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'M
 
 The classic Rx "time flies like an arrow" demo — each letter follows your mouse with an increasing delay, creating a trailing snake effect. One actor per letter, a distributor fans out mouse events.
 
-| Target | Run | UI |
-|--------|-----|----|
-| BEAM | `just run-timeflies` | Cowboy WebSocket server |
-| Python | `just run-timeflies-python` | tkinter |
-| JS | `just run-timeflies-js` | React (Feliz) + Vite |
+| Target |             Run             |           UI            |
+| ------ | --------------------------- | ----------------------- |
+| BEAM   | `just run-timeflies`        | Cowboy WebSocket server |
+| Python | `just run-timeflies-python` | tkinter                 |
+| JS     | `just run-timeflies-js`     | React (Feliz) + Vite    |
 
 ## License
 
