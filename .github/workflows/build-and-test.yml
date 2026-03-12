@@ -1,0 +1,37 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.x
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Restore dependencies
+        run: dotnet tool restore
+
+      - name: Build library
+        run: dotnet build src/Fable.Actor
+
+      - name: Build tests
+        run: dotnet build test
+
+      - name: Run .NET tests
+        run: dotnet run --project test
+
+      - name: Pack NuGet
+        run: just pack
