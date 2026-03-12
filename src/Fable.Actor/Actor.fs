@@ -71,13 +71,37 @@ let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Act
 let send (actor: Actor<'Msg>) (msg: 'Msg) : unit =
     platform.sendMsg (actor.Pid, box msg)
 
-/// Send a message and wait for a reply.
+/// Send a message and wait for a reply (blocking).
+/// The message type must include a ReplyChannel variant.
 let call (actor: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : 'Reply =
     let ref = platform.makeRef ()
     let callerPid = platform.selfPid ()
     let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
     platform.sendMsg (actor.Pid, box (msgFactory rc))
     unbox (platform.recvReply ref)
+
+/// Send a message and await a reply (non-blocking, inside actor { }).
+/// The receiving actor must use receiveAndReply — the message type stays clean.
+let callAsync<'Reply, 'Msg> (actor: Actor<'Msg>) (msg: 'Msg) : ActorOp<'Reply> = {
+    Run = fun cont ->
+        let ref = platform.makeRef ()
+        let callerPid = platform.selfPid ()
+        platform.sendMsg (actor.Pid, box (callerPid, ref, box msg))
+        let reply = platform.recvReply ref
+        cont (unbox<'Reply> reply)
+}
+
+/// Receive a message with a reply channel (inside actor { }).
+/// Pairs with callAsync — the only way to obtain a ReplyChannel.
+let receiveAndReply<'Msg, 'Reply> () : ActorOp<'Msg * ReplyChannel<'Reply>> = {
+    Run = fun cont ->
+        platform.receive (fun raw ->
+            let (callerPid, ref, msgRaw) = unbox<obj * obj * obj> raw
+            let rc: ReplyChannel<'Reply> = {
+                Reply = fun reply -> platform.sendReply (callerPid, ref, box reply)
+            }
+            cont (unbox<'Msg> msgRaw, rc))
+}
 
 /// Get own pid.
 let self<'Msg> () : Actor<'Msg> = { Pid = platform.selfPid () }
