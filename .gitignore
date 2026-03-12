@@ -1,4 +1,5 @@
 .DS_Store
+.claude/
 *.ez
 erl_crash.dump
 **/bin/
