@@ -1,47 +1,18 @@
-/// Test utilities for Factor tests
+/// Test utilities for Fable.Actor tests
 ///
-/// Provides test collectors, assertion helpers, and sleep FFI.
-module Factor.TestUtils
+/// Provides assertion helpers and sleep FFI.
+module Fable.Actor.TestUtils
 
-open Factor.Actor.Types
-open Factor.Beam
+open Fable.Actor.Types
 
-/// Timer-aware sleep: processes pending factor_timer, factor_child,
-/// and EXIT messages for the specified duration.
-let sleep (ms: int) : unit = Operator.processTimers ms
+#if FABLE_COMPILER
+open Fable.Core
 
-/// Simple test result collector using mutable state.
-/// Collects OnNext values, completion status, and errors.
-/// Registers a child handler in the current process and creates
-/// an observer endpoint (Pid + Ref) for the test process.
-type TestCollector<'T>() =
-    let mutable results: 'T list = []
-    let mutable completed = false
-    let mutable errors: exn list = []
-    let mutable msgs: Msg<'T> list = []
-
-    let ref = Process.makeRef ()
-
-    do
-        Process.registerChild
-            ref
-            (fun msg ->
-                let n = unbox<Msg<'T>> msg
-
-                msgs <- n :: msgs
-
-                match n with
-                | OnNext x -> results <- x :: results
-                | OnError e -> errors <- e :: errors
-                | OnCompleted -> completed <- true)
-
-    member _.Results = List.rev results
-    member _.Completed = completed
-    member _.Errors = List.rev errors
-    member _.Msgs = List.rev msgs
-
-    member _.Observer: Observer<'T> =
-        { Pid = Process.selfPid (); Ref = ref }
+[<Emit("timer:sleep($0)")>]
+let sleep (ms: int) : unit = nativeOnly
+#else
+let sleep (ms: int) : unit = System.Threading.Thread.Sleep(ms)
+#endif
 
 /// Assertion: check equality
 let shouldEqual (expected: 'T) (actual: 'T) =
@@ -62,8 +33,3 @@ let shouldBeFalse (value: bool) =
 let shouldHaveLength (expected: int) (lst: 'T list) =
     if lst.Length <> expected then
         failwithf "Expected length %d but got %d" expected lst.Length
-
-/// Assertion: check that a list is not empty
-let shouldNotBeEmpty (lst: 'T list) =
-    if lst.IsEmpty then
-        failwith "Expected non-empty list but got empty"

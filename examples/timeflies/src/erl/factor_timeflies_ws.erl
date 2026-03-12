@@ -3,34 +3,27 @@
 
 %% Cowboy WebSocket handler for the timeflies demo.
 %%
-%% On init, calls the F# setupPipeline function which returns
-%% {MouseObserver, Disposable}. Mouse events from the browser
-%% are pushed to the channel agent via Observer, and timer/child/send
-%% messages are handled inline.
+%% On init, calls the F# setupPipeline which returns an Actor (distributor).
+%% Mouse events are sent to the distributor, which fans out to per-letter
+%% child actors with delay timers. Letter actors send {send, Json} back
+%% to the websocket process.
 
 init(Req, State) ->
     {cowboy_websocket, Req, State}.
 
 websocket_init(_State) ->
-    %% SendFn sends a message to self() which websocket_info will forward as a WS frame
     Self = self(),
     SendFn = fun(Json) -> Self ! {send, Json} end,
 
-    %% Call the compiled F# setup_pipeline function
-    %% Returns {Observer, Handle} where Observer = #{pid => Pid, ref => Ref}
-    {MouseObserver, Disposable} = timeflies:setup_pipeline(SendFn),
-
-    {ok, #{mouse_observer => MouseObserver, disposable => Disposable}}.
+    %% Returns Actor<MousePos> = #{pid => Pid}
+    Distributor = timeflies:setup_pipeline(SendFn),
+    {ok, #{distributor => Distributor}}.
 
 websocket_handle({text, Json}, State) ->
     case jsx:decode(Json, [return_maps]) of
         #{<<"x">> := X, <<"y">> := Y} when is_integer(X), is_integer(Y) ->
-            MouseObserver = maps:get(mouse_observer, State),
-            %% MousePos record compiles to #{x => X, y => Y}
-            MousePos = #{x => X, y => Y},
-            %% Push Notify(OnNext(Value)) to channel agent via factor_msg protocol
-            ObserverPid = maps:get(pid, MouseObserver),
-            ObserverPid ! {factor_msg, {notify, {on_next, MousePos}}},
+            #{pid := Pid} = maps:get(distributor, State),
+            Pid ! {factor_msg, #{x => X, y => Y}},
             {ok, State};
         _ ->
             {ok, State}
@@ -38,32 +31,15 @@ websocket_handle({text, Json}, State) ->
 websocket_handle(_Frame, State) ->
     {ok, State}.
 
-%% Handle timer callbacks from factor_timer:schedule
-websocket_info({factor_timer, _Ref, Callback}, State) ->
-    Callback(ok),
-    {ok, State};
-
-%% Handle child notifications from stream actors
-websocket_info({factor_child, Ref, Notification}, State) ->
-    case get(factor_children) of
-        undefined -> ok;
-        Map ->
-            case maps:find(Ref, Map) of
-                {ok, Handler} -> Handler(Notification);
-                error -> ok
-            end
-    end,
-    {ok, State};
-
-%% Handle send messages from the Rx pipeline
+%% Forward letter position JSON to browser
 websocket_info({send, Text}, State) ->
     {[{text, Text}], State};
 
 websocket_info(_Info, State) ->
     {ok, State}.
 
-terminate(_Reason, _Req, #{disposable := Disposable}) ->
-    (maps:get(dispose, Disposable))(ok),
+terminate(_Reason, _Req, #{distributor := #{pid := Pid}}) ->
+    exit(Pid, kill),
     ok;
 terminate(_Reason, _Req, _State) ->
     ok.

@@ -10,3 +10,6 @@ _build/
 # Ignore compiled BEAM files but not Factor.Beam directory
 *.beam
 !Factor.Beam
+
+*.pyc
+output/

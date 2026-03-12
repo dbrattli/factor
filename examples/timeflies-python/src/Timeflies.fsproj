@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Timeflies.fs" />
-    <Compile Include="Http.fs" />
-    <Compile Include="App.fs" />
+    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../src/Fable.Actor/Fable.Actor.fsproj" />
-    <PackageReference Include="Fable.Beam" Version="5.0.0-rc.4" />
-    <PackageReference Include="Fable.Beam.Cowboy" Version="5.0.0-rc.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="5.0.0-rc.1" />
+    <PackageReference Include="Fable.Python" Version="5.0.0-rc.2" />
   </ItemGroup>
 </Project>

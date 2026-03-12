@@ -9,7 +9,7 @@ module InteropExample
 
 open Fable.Core
 open Factor.Actor.Types
-open Factor.Beam
+open Factor.Actor
 
 // --- Erlang FFI helpers ---
 

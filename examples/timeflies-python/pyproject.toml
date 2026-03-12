@@ -1,0 +1,8 @@
+[project]
+name = "timeflies-python"
+version = "0.1.0"
+requires-python = ">= 3.12"
+dependencies = [
+    "fable-library==5.0.0rc2",
+    "tk>=0.1.0",
+]

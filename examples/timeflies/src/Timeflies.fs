@@ -1,50 +1,61 @@
 module Timeflies
 
-open Factor.Actor.Types
-open Factor.Beam
-open Factor.Reactive
-open Factor.Reactive.Builder
+open Fable.Actor.Types
+open Fable.Actor
 
 let text = "TIME FLIES LIKE AN ARROW WITH F# AND FABLE.BEAM"
 
 type MousePos = { X: int; Y: int }
 
-type LetterPos = { Index: int; Char: string; X: int; Y: int }
+type LetterMsg =
+    | MouseMove of MousePos
+    | Delayed of MousePos
 
-/// Sets up the reactive pipeline for the timeflies demo.
+/// Sets up the timeflies demo using actors.
 ///
-/// Takes a sendFn that sends a JSON string to the WebSocket client.
-/// Returns (mouseSender, disposable) where mouseSender receives
-/// mouse position events and disposable cleans up the pipeline.
-let setupPipeline (sendFn: string -> unit) : Observer<MousePos> * Handle =
-    let mouseSender, mouseMoves = Reactive.multicast ()
+/// Each letter is an actor with its own delay timer.
+/// A distributor actor fans out mouse events to all letter actors.
+/// Returns the distributor actor — send MousePos to it.
+/// Kill the distributor to clean up (linked children die automatically).
+let setupPipeline (sendFn: string -> unit) : Actor<MousePos> =
+    spawn (fun () ->
+        // Each letter is a linked child actor with a delay
+        let letters =
+            text
+            |> Seq.toList
+            |> List.mapi (fun index char ->
+                spawnLinked (fun () ->
+                    let me = self<LetterMsg> ()
 
-    let lettersWithIndex =
-        text
-        |> Seq.toList
-        |> List.mapi (fun i c -> i, c)
+                    let rec loop () =
+                        actor {
+                            let! msg = receive<LetterMsg> ()
 
-    let pipeline =
-        lettersWithIndex
-        |> Reactive.ofList
-        |> Reactive.flatMap (fun (index, char) ->
-            observable {
-                let! (pos: MousePos) = mouseMoves |> Reactive.delay (80 * index)
+                            match msg with
+                            | MouseMove pos ->
+                                schedule (80 * index) (fun () -> send me (Delayed pos)) |> ignore
+                                return! loop ()
+                            | Delayed pos ->
+                                let json =
+                                    sprintf
+                                        "{\"index\":%d,\"char\":\"%s\",\"x\":%d,\"y\":%d}"
+                                        index
+                                        (string char)
+                                        (pos.X + index * 14 + 15)
+                                        pos.Y
 
-                return
-                    { Index = index
-                      Char = string char
-                      X = pos.X + index * 14 + 15
-                      Y = pos.Y }
-            })
+                                sendFn json
+                                return! loop ()
+                        }
 
-    let observer =
-        Actor.asObserver (fun lp ->
-            let json =
-                sprintf "{\"index\":%d,\"char\":\"%s\",\"x\":%d,\"y\":%d}" lp.Index lp.Char lp.X lp.Y
+                    loop ()))
 
-            sendFn json)
+        // Distributor loop: receive MousePos, fan out to all letters
+        let rec loop () =
+            actor {
+                let! pos = receive<MousePos> ()
+                letters |> List.iter (fun letter -> send letter (MouseMove pos))
+                return! loop ()
+            }
 
-    let handle = pipeline |> _.Subscribe(observer)
-
-    mouseSender, handle
+        loop ())
