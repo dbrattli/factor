@@ -1,5 +1,5 @@
 /// Cowboy HTTP server setup for the timeflies demo.
-module FactorTimefliesApp
+module FableActorTimefliesApp
 
 open Fable.Core
 open Fable.Beam.Application
@@ -30,8 +30,8 @@ let start () =
     let dispatch =
         compile [
             hostRule [
-                route "/" (binaryToAtom "factor_timeflies_http")
-                route "/ws" (binaryToAtom "factor_timeflies_ws")
+                route "/" (binaryToAtom "fable_actor_timeflies_http")
+                route "/ws" (binaryToAtom "fable_actor_timeflies_ws")
             ]
         ]
 

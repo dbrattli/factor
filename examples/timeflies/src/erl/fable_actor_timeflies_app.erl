@@ -1,19 +1,19 @@
--module(factor_timeflies_app).
+-module(fable_actor_timeflies_app).
 -export([start/0]).
 
 %% Starts the Cowboy HTTP server with routes for the timeflies demo.
 %%
 %% Routes:
-%%   GET /    → serves HTML page (factor_timeflies_http)
-%%   GET /ws  → WebSocket upgrade (factor_timeflies_ws)
+%%   GET /    → serves HTML page (fable_actor_timeflies_http)
+%%   GET /ws  → WebSocket upgrade (fable_actor_timeflies_ws)
 
 start() ->
     application:ensure_all_started(cowboy),
 
     Dispatch = cowboy_router:compile([
         {'_', [
-            {"/", factor_timeflies_http, []},
-            {"/ws", factor_timeflies_ws, []}
+            {"/", fable_actor_timeflies_http, []},
+            {"/ws", fable_actor_timeflies_ws, []}
         ]}
     ]),
 

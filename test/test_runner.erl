@@ -22,7 +22,7 @@
 ]).
 
 run() ->
-    io:format("~n=== Factor Test Suite ===~n~n"),
+    io:format("~n=== Fable.Actor Test Suite ===~n~n"),
     {TotalPass, TotalFail, TotalSkip} = lists:foldl(
         fun(Mod, {AccPass, AccFail, AccSkip}) ->
             {P, F, S} = run_module(Mod),

@@ -1,4 +1,4 @@
--module(factor_timeflies_ws).
+-module(fable_actor_timeflies_ws).
 -export([init/2, websocket_init/1, websocket_handle/2, websocket_info/2, terminate/3]).
 
 %% Cowboy WebSocket handler for the timeflies demo.
@@ -23,7 +23,7 @@ websocket_handle({text, Json}, State) ->
     case jsx:decode(Json, [return_maps]) of
         #{<<"x">> := X, <<"y">> := Y} when is_integer(X), is_integer(Y) ->
             #{pid := Pid} = maps:get(distributor, State),
-            Pid ! {factor_msg, #{x => X, y => Y}},
+            Pid ! {fable_actor_msg, #{x => X, y => Y}},
             {ok, State};
         _ ->
             {ok, State}

@@ -1,11 +1,11 @@
 # Fable.Actor development tasks
 
-# Development mode: use local Fable repo (required for BEAM target)
-# The release Fable doesn't support [<ImportAll>] for BEAM yet
-dev := "true"
-fable_repo := justfile_directory() / "../fable/beam-improvements-17"
-fable := if dev == "true" { "dotnet run --project " + fable_repo / "src/Fable.Cli" + " --" } else { "dotnet fable" }
-fable_python := "dotnet run --project " + justfile_directory() / "../fable/main/src/Fable.Cli" + " --"
+# Development mode: use local Fable repo instead of dotnet tool
+# Usage: just dev=true test-beam
+dev := "false"
+fable_repo := justfile_directory() / "../fable"
+fable := if dev == "true" { "dotnet run --project " + fable_repo / "beam-improvements-17/src/Fable.Cli" + " --" } else { "dotnet fable" }
+fable_python := if dev == "true" { "dotnet run --project " + fable_repo / "main/src/Fable.Cli" + " --" } else { "dotnet fable" }
 
 src_path := "src/Fable.Actor"
 build_path := "build"
@@ -23,10 +23,8 @@ clean:
 
 # Build F# to Erlang via Fable.Beam, then compile with rebar3
 build: clean
-    {{fable}} src/Fable.Actor --exclude Fable.Core --lang beam --outDir apps/factor --noCache
-    mv apps/factor/src/fable_actor.app.src apps/factor/src/factor.app.src
-    sed -i '' 's/fable_actor/factor/' apps/factor/src/factor.app.src
-    cp src/Fable.Actor/erl/*.erl apps/factor/src/
+    {{fable}} src/Fable.Actor --exclude Fable.Core --lang beam --outDir apps/fable_actor --noCache
+    cp src/Fable.Actor/erl/*.erl apps/fable_actor/src/
     rebar3 compile
 
 # Build F# projects only (type check)
@@ -80,9 +78,9 @@ test-python:
 # Run BEAM tests: compile F# → Erlang via Fable, then run
 test-beam: build
     {{fable}} {{test_path}} --exclude Fable.Core --lang beam --outDir apps/test --noCache
-    cp apps/factor/src/*.erl apps/test/src/
+    cp apps/fable_actor/src/*.erl apps/test/src/
     # Add test app to rebar project_app_dirs
-    sed -i '' 's|"apps/factor/fable_modules/\*"|"apps/factor/fable_modules/*", "apps/test"|' rebar.config
+    sed -i 's|"apps/fable_actor/fable_modules/\*"|"apps/fable_actor/fable_modules/*", "apps/test"|' rebar.config
     cd {{justfile_directory()}} && rebar3 compile
     @echo "Running BEAM tests..."
     cd {{justfile_directory()}} && erl \
@@ -100,8 +98,8 @@ timeflies_app := timeflies_path / "apps/timeflies"
 # Build timeflies example: F# → Erlang, compile with rebar3
 build-timeflies: build
     {{fable}} {{timeflies_src}} --exclude Fable.Core --lang beam --outDir {{timeflies_app}} --noCache
-    cp apps/factor/src/*.erl {{timeflies_app}}/src/
-    cp {{timeflies_src}}/erl/factor_timeflies_ws.erl {{timeflies_app}}/src/
+    cp apps/fable_actor/src/*.erl {{timeflies_app}}/src/
+    cp {{timeflies_src}}/erl/*.erl {{timeflies_app}}/src/
     cd {{timeflies_path}} && rebar3 compile
 
 # Run timeflies demo server on http://localhost:3000
@@ -109,7 +107,7 @@ run-timeflies: build-timeflies
     cd {{timeflies_path}} && erl \
         -pa _build/default/lib/*/ebin \
         -noshell \
-        -eval "factor_timeflies_app:start()" \
+        -eval "fable_actor_timeflies_app:start()" \
         -eval "receive stop -> ok end"
 
 # --- Timeflies Python example ---

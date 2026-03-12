@@ -126,7 +126,7 @@ schedule 1000 (fun () -> send ticker "tick") |> ignore
 ```text
 src/Fable.Actor/
   Types.fs      — ReplyChannel, Next<'State>, ChildExited, Directive, Strategy
-  Platform.fs   — BEAM: IActorPlatform + [<ImportAll("factor_platform")>]
+  Platform.fs   — BEAM: IActorPlatform + [<ImportAll("fable_actor_platform")>]
                   Non-BEAM: empty (uses MailboxProcessor directly)
   Actor.fs      — actor { }, spawn, spawnLinked, start, send, call, kill, schedule
   erl/          — BEAM platform implementation (native processes)

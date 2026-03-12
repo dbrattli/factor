@@ -1,4 +1,4 @@
--module(factor_timer).
+-module(fable_actor_timer).
 -export([schedule/2, cancel/1]).
 
 %% Schedule a callback to fire after Ms milliseconds.

@@ -1,4 +1,4 @@
--module(factor_timeflies_http).
+-module(fable_actor_timeflies_http).
 -export([init/2]).
 
 %% Serves the timeflies HTML page.
@@ -7,7 +7,7 @@ init(Req0, State) ->
     Html = <<"<!DOCTYPE html>
 <html>
 <head>
-  <title>Timeflies - Factor Demo</title>
+  <title>Timeflies - Fable.Actor Demo</title>
   <style>
     body {
       margin: 0;
@@ -55,7 +55,7 @@ init(Req0, State) ->
   </style>
 </head>
 <body>
-  <div id=\"title\">Factor Timeflies Demo</div>
+  <div id=\"title\">Fable.Actor Timeflies Demo</div>
   <div id=\"stats\">
     <div>In: <span id=\"in-rate\" class=\"stat-value\">0</span> msg/s</div>
     <div>Out: <span id=\"out-rate\" class=\"stat-value\">0</span> msg/s</div>

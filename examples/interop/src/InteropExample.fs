@@ -2,7 +2,7 @@
 ///
 /// Shows the wire format for cross-language actor communication:
 ///   - F# DU cases compile to Erlang tagged tuples: HelloFrom → {hello_from, ...}
-///   - Actor.send wraps in {factor_msg, Msg} envelope
+///   - Actor.send wraps in {fable_actor_msg, Msg} envelope
 ///   - ReplyChannel compiles to #{reply => fun(V) -> ... end}
 ///   - Raw Erlang sends bypass the envelope
 module InteropExample
@@ -16,7 +16,7 @@ open Fable.Actor
 [<Emit("io:format($0, $1)")>]
 let private printfmt (fmt: string) (args: obj list) : unit = nativeOnly
 
-/// Send a raw message to an Erlang pid (no {factor_msg, ...} envelope)
+/// Send a raw message to an Erlang pid (no {fable_actor_msg, ...} envelope)
 [<Emit("$0 ! $1")>]
 let private rawSend (pid: obj) (msg: obj) : unit = nativeOnly
 

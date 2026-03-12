@@ -9,18 +9,18 @@ Fable.Actor is a cross-platform actor library written in F# and compiled via [Fa
 ## Build Commands
 
 ```sh
-dotnet build src/Factor.Actor    # Type-check
+dotnet build src/Fable.Actor    # Type-check
 dotnet fantomas src -r           # Format
 ```
 
 ## Architecture
 
-One F# project: `src/Factor.Actor/`
+One F# project: `src/Fable.Actor/`
 
 ### Core Files
 
 1. **Types.fs** — `Actor<'Msg>`, `Next<'State>`, `ReplyChannel<'Reply>`, `ChildExited`
-2. **Platform.fs** — `IFactorPlatform` erased interface, `[<ImportAll("factor_platform")>]`
+2. **Platform.fs** — `IActorPlatform` erased interface, `[<ImportAll("fable_actor_platform")>]`
 3. **Actor.fs** — `actor { }` CE, `spawn`, `spawnLinked`, `start`, `send`, `call`, `receive`, `kill`, `trapExits`
 
 ### Core Types
@@ -33,9 +33,9 @@ One F# project: `src/Factor.Actor/`
 
 ### Platform Interface
 
-Each target provides a native `factor_platform` module implementing `IFactorPlatform`:
-- BEAM: `factor_platform.erl` (processes, mailbox, selective receive)
-- Python: `factor_platform.py` (asyncio tasks)
+Each target provides a native `fable_actor_platform` module implementing `IActorPlatform`:
+- BEAM: `fable_actor_platform.erl` (processes, mailbox, selective receive)
+- Python: `fable_actor_platform.py` (asyncio tasks)
 - JS: TBD
 
 ### Design Principles
