@@ -11,9 +11,18 @@ Fable.Actor is a cross-platform actor library for F#, compiled via [Fable](https
 Requires .NET SDK 10+ and the [Fable](https://github.com/fable-compiler/Fable) compiler.
 
 ```sh
-just build    # Compile F# to Erlang via Fable
 just check    # Type-check F# with dotnet build
+just build    # Compile F# to Erlang via Fable
 just format   # Format source with Fantomas
+```
+
+## Test
+
+```sh
+just test-native   # Run .NET tests
+just test-python   # Compile to Python via Fable, then run
+just test-beam     # Compile to Erlang via Fable, then run
+just test          # Run .NET + Python tests
 ```
 
 ## Quick Start
@@ -37,20 +46,20 @@ let counter = start 0 (fun count msg ->
 
 send counter Increment
 send counter Increment
-let count = call counter (fun rc -> GetCount rc)
+let! count = call counter (fun rc -> GetCount rc)
 // count = 2
 ```
 
 ### Actor with Computation Expression
 
-The `actor { }` CE provides CPS-based receive that maps to each platform's concurrency primitive — blocking selective receive on BEAM, async/await on Python, promises on JS.
+The `actor { }` CE maps to each platform's concurrency primitive — `MailboxProcessor` on .NET/Python/JS, CPS-based blocking receive on BEAM.
 
 ```fsharp
 open Fable.Actor
 
-let greeter = spawn (fun () ->
+let greeter = spawn (fun inbox ->
     let rec loop () = actor {
-        let! msg = receive<string> ()
+        let! msg = inbox.Receive()
         printfn "Hello, %s!" msg
         return! loop ()
     }
@@ -64,18 +73,18 @@ send greeter "World"
 `spawnLinked` creates a child actor linked to the parent. If the child crashes, the parent gets an EXIT signal. Use `trapExits` to handle crashes instead of dying.
 
 ```fsharp
-let supervisor = spawn (fun () ->
+let supervisor = spawn (fun inbox ->
     trapExits ()
-    let _worker = spawnLinked (fun () ->
+    let _worker = spawnLinked inbox (fun childInbox ->
         let rec loop () = actor {
-            let! msg = receive<string> ()
+            let! msg = childInbox.Receive()
             // process msg...
             return! loop ()
         }
         loop ())
 
     let rec loop () = actor {
-        let! msg = receive<obj> ()
+        let! msg = inbox.Receive()
         // handle EXIT signals from crashed children
         return! loop ()
     }
@@ -85,61 +94,58 @@ let supervisor = spawn (fun () ->
 ### Timers
 
 ```fsharp
-let ticker = spawn (fun () ->
-    let me = self<string> ()
-    schedule 1000 (fun () -> send me "tick") |> ignore
+let ticker = start 0 (fun count msg ->
+    match msg with
+    | "tick" ->
+        printfn "tick %d" count
+        Continue (count + 1)
+    | _ -> Continue count)
 
-    let rec loop () = actor {
-        let! msg = receive<string> ()
-        printfn "%s" msg
-        schedule 1000 (fun () -> send me "tick") |> ignore
-        return! loop ()
-    }
-    loop ())
+schedule 1000 (fun () -> send ticker "tick") |> ignore
 ```
 
 ## Architecture
 
 ```
 src/Fable.Actor/
-  Types.fs      — Actor<'Msg>, Next<'State>, ReplyChannel, ChildExited
-  Platform.fs   — IActorPlatform (16 methods), [<ImportAll("factor_platform")>]
-  Actor.fs      — actor { }, spawn, spawnLinked, start, send, call, receive, kill, trapExits
-  erl/          — BEAM platform implementation
+  Types.fs      — ReplyChannel, Next<'State>, ChildExited
+  Platform.fs   — BEAM: IActorPlatform + [<ImportAll("factor_platform")>]
+                  Non-BEAM: empty (uses MailboxProcessor directly)
+  Actor.fs      — actor { }, spawn, spawnLinked, start, send, call, kill, schedule
+  erl/          — BEAM platform implementation (native processes)
 ```
 
-### Platform Interface
+### Platform Strategy
 
-Each target provides a native `factor_platform` module:
+| Platform | Actor wraps | Concurrency model |
+|----------|------------|-------------------|
+| .NET | `MailboxProcessor` | Async + threads |
+| Python | `MailboxProcessor` (Fable) | asyncio |
+| JS | `MailboxProcessor` (Fable) | Promises (TBD) |
+| BEAM | Native process | Erlang processes + mailbox |
 
-| Platform | Implementation | Concurrency model |
-|----------|---------------|-------------------|
-| BEAM | `factor_platform.erl` | Processes + mailbox |
-| Python | `factor_platform.py` | asyncio tasks |
-| JS | TBD | Promises |
+On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'Msg>`. No platform-specific runtime needed — Fable's built-in `MailboxProcessor` handles everything. On BEAM, actors map to real Erlang processes with native supervision.
 
 ### API
 
 | Function | Description |
 |----------|-------------|
-| `spawn body` | Spawn an actor running an `actor { }` CE body |
-| `spawnLinked body` | Spawn a linked child actor (EXIT on crash) |
+| `spawn body` | Spawn an actor: `spawn (fun inbox -> actor { ... })` |
+| `spawnLinked parent body` | Spawn a linked child actor (EXIT on crash) |
 | `start state handler` | Stateful actor with message handler loop |
 | `send actor msg` | Fire-and-forget message send |
-| `call actor msgFactory` | Synchronous request-response |
-| `receive ()` | Receive next message (inside `actor { }`) |
-| `self ()` | Get own actor reference |
+| `call actor msgFactory` | Async request-response (returns `ActorOp<'Reply>`) |
 | `kill actor` | Kill an actor immediately |
 | `trapExits ()` | Enable supervision (EXIT signals become messages) |
 | `schedule ms callback` | Schedule a timer callback |
 | `cancelTimer timer` | Cancel a scheduled timer |
-| `refEquals a b` | Compare platform references |
 
 ### Design Principles
 
 - **Actor is the only abstraction** — no Observable, Observer, or Rx types
-- **No shared memory** — actors communicate only via messages, no shared closures or mutable globals (critical for BEAM where each actor is an isolated process)
-- **`actor { }` CE is the composition mechanism** — maps to platform concurrency
+- **No shared memory** — actors communicate only via messages (critical for BEAM)
+- **`actor { }` CE is the composition mechanism** — `async { }` on non-BEAM, CPS on BEAM
+- **MailboxProcessor-compatible** — same `inbox.Receive()` / `actor.Post()` API
 - **Supervision via links** — `spawnLinked` + `trapExits` for fault tolerance
 - **Rx composition lives elsewhere** — use [AsyncRx](https://github.com/dbrattli/AsyncRx) with `actor { }` instead of `MailboxProcessor`
 
