@@ -68,28 +68,45 @@ let greeter = spawn (fun inbox ->
 send greeter "World"
 ```
 
-### Linked Actors and Supervision
+### Supervision
 
-`spawnLinked` creates a child actor linked to the parent. If the child crashes, the parent gets an EXIT signal. Use `trapExits` to handle crashes instead of dying.
+`spawnSupervised` creates a child actor with a supervision strategy. When the child crashes, the strategy decides what to do: `Restart`, `Stop`, or `Escalate`.
 
 ```fsharp
 let supervisor = spawn (fun inbox ->
     trapExits ()
-    let _worker = spawnLinked inbox (fun childInbox ->
-        let rec loop () = actor {
-            let! msg = childInbox.Receive()
-            // process msg...
-            return! loop ()
-        }
-        loop ())
+
+    let child =
+        spawnSupervised inbox
+            (OneForOne (fun ex ->
+                match ex with
+                | :? System.TimeoutException -> Directive.Restart
+                | _ -> Directive.Stop))
+            (fun childInbox ->
+                let rec loop () = actor {
+                    let! msg = childInbox.Receive()
+                    // process msg... might crash
+                    return! loop ()
+                }
+                loop ())
+
+    // Send messages directly to the child
+    send child.Actor "work"
 
     let rec loop () = actor {
         let! msg = inbox.Receive()
-        // handle EXIT signals from crashed children
+        match tryAsChildExited msg with
+        | Some exited ->
+            let restarted = handleChildExit inbox child exited
+            if not restarted then
+                printfn "Child stopped permanently"
+        | None -> ()
         return! loop ()
     }
     loop ())
 ```
+
+For lower-level control, `spawnLinked` + `trapExits` gives you raw EXIT signals without automatic restart.
 
 ### Timers
 
@@ -108,7 +125,7 @@ schedule 1000 (fun () -> send ticker "tick") |> ignore
 
 ```
 src/Fable.Actor/
-  Types.fs      — ReplyChannel, Next<'State>, ChildExited
+  Types.fs      — ReplyChannel, Next<'State>, ChildExited, Directive, Strategy
   Platform.fs   — BEAM: IActorPlatform + [<ImportAll("factor_platform")>]
                   Non-BEAM: empty (uses MailboxProcessor directly)
   Actor.fs      — actor { }, spawn, spawnLinked, start, send, call, kill, schedule
@@ -132,6 +149,9 @@ On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'M
 |----------|-------------|
 | `spawn body` | Spawn an actor: `spawn (fun inbox -> actor { ... })` |
 | `spawnLinked parent body` | Spawn a linked child actor (EXIT on crash) |
+| `spawnSupervised parent strategy body` | Spawn a child with supervision (auto-restart) |
+| `handleChildExit parent supervised exited` | Apply strategy to a crashed child |
+| `tryAsChildExited msg` | Check if a message is a `ChildExited` notification |
 | `start state handler` | Stateful actor with message handler loop |
 | `send actor msg` | Fire-and-forget message send |
 | `call actor msgFactory` | Async request-response (returns `ActorOp<'Reply>`) |
