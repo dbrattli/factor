@@ -3,9 +3,6 @@
 /// No platform code, no dependencies beyond Fable.Core.
 module Fable.Actor.Types
 
-/// Opaque typed actor wrapping a platform-specific process identifier.
-type Actor<'Msg> = { Pid: obj }
-
 /// A reply channel that the receiver calls to send a response back to the caller.
 type ReplyChannel<'Reply> = { Reply: 'Reply -> unit }
 
