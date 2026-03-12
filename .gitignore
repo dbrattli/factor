@@ -7,9 +7,15 @@ erl_crash.dump
 apps/
 _build/
 
-# Ignore compiled BEAM files but not Factor.Beam directory
+# Ignore compiled BEAM files
 *.beam
-!Factor.Beam
 
 *.pyc
 output/
+
+# Fable JS output
+*.fs.js
+
+# JS dependencies
+node_modules/
+package-lock.json
