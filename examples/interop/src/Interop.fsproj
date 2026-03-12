@@ -6,7 +6,6 @@
     <Compile Include="InteropExample.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../src/Factor.Actor/Factor.Actor.fsproj" />
-    <ProjectReference Include="../../../src/Factor.Beam/Factor.Beam.fsproj" />
+    <ProjectReference Include="../../../src/Fable.Actor/Fable.Actor.fsproj" />
   </ItemGroup>
 </Project>

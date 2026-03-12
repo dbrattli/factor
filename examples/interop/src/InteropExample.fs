@@ -8,8 +8,8 @@
 module InteropExample
 
 open Fable.Core
-open Factor.Actor.Types
-open Factor.Actor
+open Fable.Actor.Types
+open Fable.Actor
 
 // --- Erlang FFI helpers ---
 
