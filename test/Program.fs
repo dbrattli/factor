@@ -1,35 +1,74 @@
 module Fable.Actor.TestRunner
 
+open Fable.Actor
 open Fable.Actor.ActorTest
 
-let runTest name f =
-    try
-        f ()
-        printfn "  PASS: %s" name
-        true
-    with ex ->
-        printfn "  FAIL: %s - %s" name (ex.Message)
-        false
+let runTest name (f: unit -> ActorOp<unit>) =
+    actor {
+        try
+            do! f ()
+            printfn "  PASS: %s" name
+            return true
+        with ex ->
+            printfn "  FAIL: %s - %s" name (ex.Message)
+            return false
+    }
 
+let mainAsync =
+    actor {
+        printfn "Fable.Actor Tests"
+        printfn "================="
+
+        // basic spawn
+        let! r1 = runTest "actor_empty" actor_empty_test
+        let! r2 = runTest "actor_single_receive" actor_single_receive_test
+        let! r3 = runTest "actor_multiple_receive" actor_multiple_receive_test
+        let! r4 = runTest "actor_post" actor_post_test
+
+        // stateful (start)
+        let! r5 = runTest "actor_start_basic" actor_start_basic_test
+        let! r6 = runTest "actor_start_stop" actor_start_stop_test
+
+        // call/reply
+        let! r7 = runTest "actor_call_reply" actor_call_reply_test
+        let! r8 = runTest "actor_multiple_calls" actor_multiple_calls_test
+
+        // spawn + CE
+        let! r9 = runTest "actor_spawn_send" actor_spawn_send_test
+        let! r10 = runTest "actor_spawn_receive_forward" actor_spawn_receive_forward_test
+        let! r11 = runTest "actor_async_work" actor_async_work_test
+
+        // timers
+        let! r12 = runTest "actor_schedule" actor_schedule_test
+
+        // supervision
+        let! r13 = runTest "actor_linked_crash" actor_linked_crash_test
+
+        // kill
+        let! r14 = runTest "actor_kill" actor_kill_test
+
+        let results = [ r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11; r12; r13; r14 ]
+        let passed = results |> List.filter id |> List.length
+        let total = results.Length
+        printfn ""
+        printfn "%d/%d tests passed" passed total
+
+        return if passed = total then 0 else 1
+    }
+
+#if FABLE_COMPILER_BEAM
+
+// BEAM: run the CPS computation
 [<EntryPoint>]
 let main _argv =
-    printfn "Fable.Actor Tests"
-    printfn "================="
+    let mutable exitCode = 1
+    mainAsync.Run(fun code -> exitCode <- code)
+    exitCode
 
-    let results =
-        [ "actor_start_basic", actor_start_basic_test
-          "actor_start_stop", actor_start_stop_test
-          "actor_call_reply", actor_call_reply_test
-          "actor_spawn_ce", actor_spawn_ce_test
-          "actor_schedule", actor_schedule_test
-          "actor_linked_crash", actor_linked_crash_test
-          "actor_kill", actor_kill_test
-          "actor_callAsync", actor_callAsync_test ]
-        |> List.map (fun (name, f) -> runTest name f)
+#else
 
-    let passed = results |> List.filter id |> List.length
-    let total = results.Length
-    printfn ""
-    printfn "%d/%d tests passed" passed total
+// .NET / Python: run via Async.RunSynchronously
+[<EntryPoint>]
+let main _argv = Async.RunSynchronously mainAsync
 
-    if passed = total then 0 else 1
+#endif

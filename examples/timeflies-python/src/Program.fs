@@ -1,31 +1,8 @@
 module Program
 
-open Fable.Core
 open Fable.Python.TkInter
-open Fable.Actor.Types
+open Fable.Python.AsyncIO
 open Fable.Actor
-
-// ---------------------------------------------------------------------------
-// Factor Platform bootstrap
-// ---------------------------------------------------------------------------
-
-[<Erase>]
-type IFactorPlatformInit =
-    abstract ensureMainProcess: unit -> obj
-    abstract processTimers: ms: int -> unit
-
-[<ImportAll("factor_platform")>]
-let factorPlatformInit: IFactorPlatformInit = nativeOnly
-
-// ---------------------------------------------------------------------------
-// Extensions for missing TkInter bindings
-// ---------------------------------------------------------------------------
-
-[<Emit("$0.geometry($1)")>]
-let setGeometry (root: Tk) (size: string) : unit = nativeOnly
-
-[<Emit("$0.configure(bg=$1)")>]
-let setBg (root: Tk) (color: string) : unit = nativeOnly
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,56 +10,50 @@ let setBg (root: Tk) (color: string) : unit = nativeOnly
 
 let text = "TIME FLIES LIKE AN ARROW"
 
-type MousePos = { X: int; Y: int }
-
 type LetterMsg =
-    | MouseMove of MousePos
-    | Delayed of MousePos
+    | MoveTo of x: int * y: int
 
 // ---------------------------------------------------------------------------
 // Actor-based pipeline
 // ---------------------------------------------------------------------------
 
-let setupPipeline (root: Tk) =
-    let frame = Frame(root, 800, 600, "#1a1a2e")
-    frame.pack ()
+/// Each letter actor delays mouse positions by (index * 100ms).
+/// Every position gets its own timer — mimics AsyncRx.delay behavior
+/// where each letter shows where the mouse was N ms ago.
+let letterActor (index: int) (label: Label) =
+    spawn (fun inbox ->
+        let rec loop () =
+            actor {
+                let! (MoveTo(x, y)) = inbox.Receive()
 
-    let labels =
-        text
-        |> Seq.toList
-        |> List.mapi (fun i c ->
-            let label = Label(frame, string c, "#00ffff", "#1a1a2e")
-            (i, label))
+                schedule (100 * index) (fun () ->
+                    label.place (x + index * 12 + 15, y))
+                |> ignore
+
+                return! loop ()
+            }
+
+        loop ())
+
+let setupPipeline (root: Tk) =
+    let frame = Frame(root, width = 800, height = 600, bg = "#1a1a2e")
+    frame.pack ()
 
     // Spawn a letter actor for each character
     let letters =
-        labels
-        |> List.map (fun (index, label) ->
-            spawn (fun () ->
-                let me = self<LetterMsg> ()
+        text
+        |> Seq.toList
+        |> List.mapi (fun i c ->
+            let label = Label(frame, text = string c, fg = "#00ffff", bg = "#1a1a2e")
+            letterActor i label)
 
-                let rec loop () =
-                    actor {
-                        let! msg = receive<LetterMsg> ()
-
-                        match msg with
-                        | MouseMove pos ->
-                            schedule (80 * index) (fun () -> send me (Delayed pos)) |> ignore
-                            return! loop ()
-                        | Delayed pos ->
-                            label.place (pos.X + index * 12 + 15, pos.Y)
-                            return! loop ()
-                    }
-
-                loop ()))
-
-    // Distributor: receives MousePos, fans out to all letter actors
-    let distributor: Actor<MousePos> =
-        spawn (fun () ->
+    // Distributor: fans out mouse positions to all letter actors
+    let distributor =
+        spawn (fun inbox ->
             let rec loop () =
                 actor {
-                    let! pos = receive<MousePos> ()
-                    letters |> List.iter (fun letter -> send letter (MouseMove pos))
+                    let! pos = inbox.Receive()
+                    letters |> List.iter (fun letter -> send letter pos)
                     return! loop ()
                 }
 
@@ -91,34 +62,30 @@ let setupPipeline (root: Tk) =
     distributor, frame
 
 // ---------------------------------------------------------------------------
-// Main
+// Main — async event loop with tkinter integration
 // ---------------------------------------------------------------------------
 
-let main () =
-    factorPlatformInit.ensureMainProcess () |> ignore
-    printfn "Factor platform initialized"
+let mainAsync =
+    async {
+        let root = Tk()
+        root.title "Fable.Actor Timeflies - Python"
 
-    let root = Tk()
-    root.title "Fable.Actor Timeflies - Python"
-    setGeometry root "800x600"
-    setBg root "#1a1a2e"
+        let distributor, frame = setupPipeline root
 
-    let distributor, frame = setupPipeline root
+        frame.bind (
+            "<Motion>",
+            fun (ev: Event) ->
+                send distributor (MoveTo(ev.x, ev.y))
+        )
+        |> ignore
 
-    frame.bind (
-        "<Motion>",
-        fun (ev: Event) ->
-            send distributor { X = ev.x; Y = ev.y }
-    )
-    |> ignore
+        // Async main loop: process tkinter events + yield to asyncio
+        while true do
+            while root.dooneevent (int Flags.DONT_WAIT) do
+                ()
 
-    printfn "mouse bound, starting mainloop"
+            do! Async.AwaitTask(asyncio.create_task (asyncio.sleep 0.005))
+    }
 
-    let rec pump () =
-        factorPlatformInit.processTimers 1
-        root.after (16, pump)
-
-    pump ()
-    root.mainloop ()
-
-main ()
+printfn "Started ..."
+Async.RunSynchronously mainAsync
