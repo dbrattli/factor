@@ -5,6 +5,10 @@
 dev := "true"
 fable_repo := justfile_directory() / "../fable/beam-improvements-17"
 fable := if dev == "true" { "dotnet run --project " + fable_repo / "src/Fable.Cli" + " --" } else { "dotnet fable" }
+fable_python := "dotnet run --project " + justfile_directory() / "../fable/main/src/Fable.Cli" + " --"
+
+build_path := "build"
+test_path := "test"
 
 # List available recipes
 default:
@@ -12,7 +16,9 @@ default:
 
 # Clean build artifacts
 clean:
-    rm -rf apps _build
+    rm -rf apps _build {{build_path}}
+
+# --- Build ---
 
 # Build F# to Erlang via Fable.Beam, then compile with rebar3
 build: clean
@@ -26,10 +32,6 @@ build: clean
 check:
     dotnet build src/Fable.Actor
 
-# --- Fable Python ---
-
-fable_python := "dotnet run --project " + justfile_directory() / "../fable/main/src/Fable.Cli" + " --"
-
 # Format source files
 format:
     dotnet fantomas src -r
@@ -38,12 +40,40 @@ format:
 restore:
     dotnet tool restore
 
-# Run .NET tests
-test:
-    dotnet run --project test/Test.fsproj
-
 # Build and check
 all: check build
+
+# --- Tests ---
+
+# Run all tests (.NET + Python)
+test: test-native test-python
+
+# Run .NET tests only
+test-native:
+    dotnet build {{test_path}}
+    @echo "Running .NET tests..."
+    dotnet run --project {{test_path}}
+
+# Run Python tests: compile F# → Python via Fable, then run
+test-python:
+    rm -rf {{build_path}}/tests
+    {{fable_python}} {{test_path}} --lang python --outDir {{build_path}}/tests --exclude Fable.Core --noCache
+    @echo "Running Python tests..."
+    cd {{build_path}}/tests && uv run --project ../../pyproject.toml python program.py
+
+# Run BEAM tests: compile F# → Erlang via Fable, then run
+test-beam: build
+    {{fable}} {{test_path}} --exclude Fable.Core --lang beam --outDir apps/test --noCache
+    cp apps/factor/src/*.erl apps/test/src/
+    # Add test app to rebar project_app_dirs
+    sed -i '' 's|"apps/factor/fable_modules/\*"|"apps/factor/fable_modules/*", "apps/test"|' rebar.config
+    cd {{justfile_directory()}} && rebar3 compile
+    @echo "Running BEAM tests..."
+    cd {{justfile_directory()}} && erl \
+        -pa _build/default/lib/*/ebin \
+        -noshell \
+        -eval "program:main([])" \
+        -s init stop
 
 # --- Timeflies example ---
 
@@ -78,7 +108,6 @@ build-timeflies-python:
     {{fable_python}} {{timeflies_py_src}} --lang python --outDir {{timeflies_py_out}} --exclude Fable.Core --noCache
     touch {{timeflies_py_out}}/src/__init__.py
     touch {{timeflies_py_out}}/src/Fable_Actor/__init__.py
-    cp {{timeflies_py_path}}/py/factor_platform.py {{timeflies_py_out}}/factor_platform.py
 
 # Run timeflies-python demo
 run-timeflies-python: build-timeflies-python

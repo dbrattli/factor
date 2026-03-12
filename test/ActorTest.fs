@@ -6,75 +6,182 @@ open Fable.Actor
 open Fable.Actor.TestUtils
 
 // ============================================================================
-// start tests (stateful actor with handler)
+// basic spawn tests
 // ============================================================================
+
+/// An actor that does nothing should not crash.
+let actor_empty_test () =
+    actor {
+        let _a: Actor<string> =
+            spawn (fun _inbox -> actor { return () })
+
+        do! sleep 10
+        shouldBeTrue true
+    }
+
+/// An actor can receive a single message.
+let actor_single_receive_test () =
+    actor {
+        let mutable got = ""
+
+        let a: Actor<string> =
+            spawn (fun inbox ->
+                actor {
+                    let! msg = inbox.Receive()
+                    got <- msg
+                })
+
+        send a "hello"
+        do! sleep 10
+        shouldEqual "hello" got
+    }
+
+/// An actor can receive multiple messages in order.
+let actor_multiple_receive_test () =
+    actor {
+        let mutable items: int list = []
+
+        let a: Actor<int> =
+            spawn (fun inbox ->
+                let rec loop () =
+                    actor {
+                        let! n = inbox.Receive()
+                        items <- items @ [ n ]
+                        return! loop ()
+                    }
+
+                loop ())
+
+        send a 1
+        send a 2
+        send a 3
+        do! sleep 10
+        shouldEqual [ 1; 2; 3 ] items
+    }
+
+/// Post is equivalent to send.
+let actor_post_test () =
+    actor {
+        let mutable got = 0
+
+        let a: Actor<int> =
+            spawn (fun inbox ->
+                actor {
+                    let! n = inbox.Receive()
+                    got <- n
+                })
+
+        a.Post(42)
+        do! sleep 10
+        shouldEqual 42 got
+    }
+
+// ============================================================================
+// stateful actor (start) tests
+// ============================================================================
+
+type CounterMsg =
+    | Increment
+    | Decrement
+    | GetCount of ReplyChannel<int>
+
+/// start creates a stateful actor with a handler.
+let actor_start_basic_test () =
+    actor {
+        let counter =
+            start 0 (fun count msg ->
+                match msg with
+                | Increment -> Continue(count + 1)
+                | Decrement -> Continue(count - 1)
+                | GetCount rc ->
+                    rc.Reply count
+                    Continue count)
+
+        send counter Increment
+        send counter Increment
+        send counter Increment
+        send counter Decrement
+
+        do! sleep 10
+
+        let! count = call counter (fun rc -> GetCount rc)
+        shouldEqual 2 count
+    }
 
 type Command =
     | Add of int
-    | GetTotal of ReplyChannel<int>
     | Done of ReplyChannel<int>
 
-let actor_start_basic_test () =
-    let counter =
-        start 0 (fun total msg ->
-            match msg with
-            | Add n -> Continue(total + n)
-            | GetTotal rc ->
-                rc.Reply total
-                Continue total
-            | Done rc ->
-                rc.Reply total
-                Stop)
-
-    send counter (Add 10)
-    send counter (Add 20)
-    send counter (Add 5)
-
-    let total = call counter (fun rc -> GetTotal rc)
-    shouldEqual 35 total
-
+/// Stop terminates the actor handler loop.
 let actor_start_stop_test () =
-    let counter =
-        start 0 (fun count msg ->
-            match msg with
-            | Add _ -> Continue(count + 1)
-            | Done rc ->
-                rc.Reply count
-                Stop
-            | GetTotal rc ->
-                rc.Reply count
-                Continue count)
+    actor {
+        let counter =
+            start 0 (fun count msg ->
+                match msg with
+                | Add _ -> Continue(count + 1)
+                | Done rc ->
+                    rc.Reply count
+                    Stop)
 
-    send counter (Add 1)
-    send counter (Add 1)
-    send counter (Add 1)
+        send counter (Add 1)
+        send counter (Add 1)
+        send counter (Add 1)
 
-    let count = call counter (fun rc -> Done rc)
-    shouldEqual 3 count
+        do! sleep 10
+
+        let! count = call counter (fun rc -> Done rc)
+        shouldEqual 3 count
+    }
 
 // ============================================================================
 // call/reply tests
 // ============================================================================
 
-type CounterMsg =
-    | Increment
-    | GetCount of ReplyChannel<int>
-
+/// call sends a message and awaits a reply.
 let actor_call_reply_test () =
-    let counter =
-        start 0 (fun count msg ->
-            match msg with
-            | Increment -> Continue(count + 1)
-            | GetCount rc ->
-                rc.Reply count
-                Continue count)
+    actor {
+        let counter =
+            start 0 (fun count msg ->
+                match msg with
+                | Increment -> Continue(count + 1)
+                | Decrement -> Continue(count - 1)
+                | GetCount rc ->
+                    rc.Reply count
+                    Continue count)
 
-    send counter Increment
-    send counter Increment
-    send counter Increment
+        send counter Increment
+        send counter Increment
+        send counter Increment
 
-    let count = call counter (fun rc -> GetCount rc)
-    shouldEqual 3 count
+        do! sleep 10
+
+        let! count = call counter (fun rc -> GetCount rc)
+        shouldEqual 3 count
+    }
+
+/// Multiple sequential calls return correct values.
+let actor_multiple_calls_test () =
+    actor {
+        let counter =
+            start 0 (fun count msg ->
+                match msg with
+                | Increment -> Continue(count + 1)
+                | Decrement -> Continue(count - 1)
+                | GetCount rc ->
+                    rc.Reply count
+                    Continue count)
+
+        send counter Increment
+        do! sleep 10
+        let! c1 = call counter (fun rc -> GetCount rc)
+        shouldEqual 1 c1
+
+        send counter Increment
+        send counter Increment
+        do! sleep 10
+        let! c2 = call counter (fun rc -> GetCount rc)
+        shouldEqual 3 c2
+    }
 
 // ============================================================================
 // spawn + actor CE tests
@@ -84,25 +191,79 @@ type CollectorMsg<'T> =
     | Collect of 'T
     | GetResults of ReplyChannel<'T list>
 
-let actor_spawn_ce_test () =
-    let collector =
-        start [] (fun results msg ->
-            match msg with
-            | Collect x -> Continue(results @ [ x ])
-            | GetResults rc ->
-                rc.Reply results
-                Continue results)
+/// Spawned actor can send messages to other actors.
+let actor_spawn_send_test () =
+    actor {
+        let collector =
+            start [] (fun results msg ->
+                match msg with
+                | Collect x -> Continue(results @ [ x ])
+                | GetResults rc ->
+                    rc.Reply results
+                    Continue results)
 
-    let _worker: Actor<string> =
-        spawn (fun () ->
-            send collector (Collect "hello")
-            send collector (Collect "world")
-            actor { return () })
+        let _worker: Actor<string> =
+            spawn (fun _inbox ->
+                send collector (Collect "hello")
+                send collector (Collect "world")
+                actor { return () })
 
-    sleep 50
+        do! sleep 50
 
-    let results = call collector (fun rc -> GetResults rc)
-    shouldEqual [ "hello"; "world" ] results
+        let! results = call collector (fun rc -> GetResults rc)
+        shouldEqual [ "hello"; "world" ] results
+    }
+
+/// Spawn an actor that receives, transforms, and forwards messages.
+let actor_spawn_receive_forward_test () =
+    actor {
+        let collector =
+            start [] (fun results msg ->
+                match msg with
+                | Collect x -> Continue(results @ [ x ])
+                | GetResults rc ->
+                    rc.Reply results
+                    Continue results)
+
+        let doubler: Actor<int> =
+            spawn (fun inbox ->
+                let rec loop () =
+                    actor {
+                        let! n = inbox.Receive()
+                        send collector (Collect(n * 2))
+                        return! loop ()
+                    }
+
+                loop ())
+
+        send doubler 1
+        send doubler 2
+        send doubler 3
+
+        do! sleep 50
+
+        let! results = call collector (fun rc -> GetResults rc)
+        shouldEqual [ 2; 4; 6 ] results
+    }
+
+/// Actor can do async work (sleep) before responding.
+let actor_async_work_test () =
+    actor {
+        let worker: Actor<ReplyChannel<string>> =
+            spawn (fun inbox ->
+                let rec loop () =
+                    actor {
+                        let! rc = inbox.Receive()
+                        do! sleep 10
+                        rc.Reply "done"
+                        return! loop ()
+                    }
+
+                loop ())
+
+        let! result = call worker (fun rc -> rc)
+        shouldEqual "done" result
+    }
 
 // ============================================================================
 // schedule (timer) tests
@@ -112,129 +273,89 @@ type TimerMsg =
     | Tick
     | GetTicks of ReplyChannel<int>
 
+/// schedule fires callbacks after a delay.
 let actor_schedule_test () =
-    let ticker =
-        start 0 (fun count msg ->
-            match msg with
-            | Tick -> Continue(count + 1)
-            | GetTicks rc ->
-                rc.Reply count
-                Continue count)
+    actor {
+        let ticker =
+            start 0 (fun count msg ->
+                match msg with
+                | Tick -> Continue(count + 1)
+                | GetTicks rc ->
+                    rc.Reply count
+                    Continue count)
 
-    schedule 10 (fun () -> send ticker Tick) |> ignore
-    schedule 20 (fun () -> send ticker Tick) |> ignore
-    schedule 30 (fun () -> send ticker Tick) |> ignore
+        schedule 10 (fun () -> send ticker Tick) |> ignore
+        schedule 20 (fun () -> send ticker Tick) |> ignore
+        schedule 30 (fun () -> send ticker Tick) |> ignore
 
-    sleep 100
+        do! sleep 100
 
-    let ticks = call ticker (fun rc -> GetTicks rc)
-    shouldEqual 3 ticks
+        let! ticks = call ticker (fun rc -> GetTicks rc)
+        shouldEqual 3 ticks
+    }
 
 // ============================================================================
 // linked actors + supervision tests
 // ============================================================================
 
-type SupervisorMsg =
-    | ChildCrashed of obj
-    | GetCrashes of ReplyChannel<int>
-
+/// spawnLinked child crash does not crash the parent (with trapExits).
 let actor_linked_crash_test () =
-    let supervisor =
-        spawn (fun () ->
-            trapExits ()
+    actor {
+        let supervisor =
+            spawn (fun inbox ->
+                trapExits ()
 
-            let child: Actor<string> =
-                spawnLinked (fun () ->
-                    let rec loop () =
-                        actor {
-                            let! _msg = receive<string> ()
-                            failwith "crash!"
-                            return! loop ()
-                        }
+                let child: Actor<string> =
+                    spawnLinked inbox (fun childInbox ->
+                        let rec loop () =
+                            actor {
+                                let! _msg = childInbox.Receive()
+                                failwith "crash!"
+                                return! loop ()
+                            }
 
-                    loop ())
+                        loop ())
 
-            // Send a message to make the child crash
-            send child "boom"
+                // Send a message to make the child crash
+                send child "boom"
 
-            // Receive the EXIT signal
-            let rec loop (crashCount: int) =
-                actor {
-                    let! _msg = receive<obj> ()
-                    return! loop (crashCount + 1)
-                }
+                // Receive the EXIT signal
+                let rec loop (crashCount: int) =
+                    actor {
+                        let! _msg = inbox.Receive()
+                        return! loop (crashCount + 1)
+                    }
 
-            loop 0)
+                loop 0)
 
-    sleep 100
-    // If we get here without the supervisor crashing, supervision works
-    shouldBeTrue true
+        do! sleep 100
+        // If we get here without the supervisor crashing, supervision works
+        shouldBeTrue true
+    }
 
+// ============================================================================
+// kill tests
+// ============================================================================
+
+/// kill prevents an actor from receiving further messages.
 let actor_kill_test () =
-    let mutable received = false
+    actor {
+        let mutable received = false
 
-    let target: Actor<string> =
-        spawn (fun () ->
-            let rec loop () =
-                actor {
-                    let! _msg = receive<string> ()
-                    received <- true
-                    return! loop ()
-                }
+        let target: Actor<string> =
+            spawn (fun inbox ->
+                let rec loop () =
+                    actor {
+                        let! _msg = inbox.Receive()
+                        received <- true
+                        return! loop ()
+                    }
 
-            loop ())
+                loop ())
 
-    kill target
-    send target "should not arrive"
-    sleep 50
+        kill target
+        send target "should not arrive"
+        do! sleep 50
 
-    shouldBeFalse received
-
-// ============================================================================
-// callAsync + receiveAndReply tests (clean message types)
-// ============================================================================
-
-// No ReplyChannel in the message type!
-type CounterCmd =
-    | Inc
-    | Dec
-    | Get
-
-let actor_callAsync_test () =
-    // Server actor using receiveAndReply — message type is clean
-    let server: Actor<CounterCmd> =
-        spawn (fun () ->
-            let rec loop count =
-                actor {
-                    let! msg, rc = receiveAndReply<CounterCmd, int> ()
-
-                    match msg with
-                    | Inc ->
-                        rc.Reply count
-                        return! loop (count + 1)
-                    | Dec ->
-                        rc.Reply count
-                        return! loop (count - 1)
-                    | Get ->
-                        rc.Reply count
-                        return! loop count
-                }
-
-            loop 0)
-
-    // Client actor using callAsync
-    let mutable result = -1
-
-    let _client: Actor<obj> =
-        spawn (fun () ->
-            actor {
-                let! _n1 = callAsync<int, _> server Inc
-                let! _n2 = callAsync<int, _> server Inc
-                let! _n3 = callAsync<int, _> server Inc
-                let! count = callAsync<int, _> server Get
-                result <- count
-            })
-
-    sleep 50
-
-    shouldEqual 3 result
+        shouldBeFalse received
+    }

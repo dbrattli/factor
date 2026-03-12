@@ -1,17 +1,37 @@
 /// Test utilities for Fable.Actor tests
 ///
-/// Provides assertion helpers and sleep FFI.
+/// Provides assertion helpers and platform-specific sleep.
 module Fable.Actor.TestUtils
 
-open Fable.Actor.Types
+open Fable.Actor
 
-#if FABLE_COMPILER
+#if FABLE_COMPILER_BEAM
 open Fable.Core
 
 [<Emit("timer:sleep($0)")>]
-let sleep (ms: int) : unit = nativeOnly
+let sleep_ (ms: int) : unit = nativeOnly
+
+let sleep (ms: int) : ActorOp<unit> =
+    actor {
+        sleep_ ms
+        return ()
+    }
 #else
-let sleep (ms: int) : unit = System.Threading.Thread.Sleep(ms)
+#if FABLE_COMPILER
+
+// Python/JS: yield to event loop via Async.Sleep
+let sleep (ms: int) : ActorOp<unit> = Async.Sleep ms
+
+#else
+
+// .NET: block the thread, wrapped in Async for uniform signature
+let sleep (ms: int) : ActorOp<unit> =
+    async {
+        System.Threading.Thread.Sleep(ms)
+        return ()
+    }
+
+#endif
 #endif
 
 /// Assertion: check equality
