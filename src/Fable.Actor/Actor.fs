@@ -163,19 +163,33 @@ let receive<'Msg> () : ActorOp<'Msg> = {
 
 #else
 
+/// Spawn an actor with an optional external cancellation token.
+/// When the external token is cancelled, the actor's CTS is also cancelled.
+let spawnWithToken (cancellationToken: System.Threading.CancellationToken) (body: Actor<'Msg> -> Async<unit>) : Actor<'Msg> =
+    let cts = new System.Threading.CancellationTokenSource()
+    cancellationToken.Register(fun () -> cts.Cancel()) |> ignore
+    let mutable inbox: Actor<'Msg> option = None
+
+    let mb =
+        MailboxProcessor.Start(fun mb ->
+            let actor = { Mb = mb; Cts = cts }
+            inbox <- Some actor
+            body actor)
+
+    match inbox with
+    | Some a -> a
+    | None -> { Mb = mb; Cts = cts }
+
 /// Spawn an actor. Body receives inbox (self-reference) for Receive/Post.
 let spawn (body: Actor<'Msg> -> Async<unit>) : Actor<'Msg> =
     let cts = new System.Threading.CancellationTokenSource()
     let mutable inbox: Actor<'Msg> option = None
 
     let mb =
-        MailboxProcessor.Start(
-            (fun mb ->
-                let actor = { Mb = mb; Cts = cts }
-                inbox <- Some actor
-                body actor),
-            cts.Token
-        )
+        MailboxProcessor.Start(fun mb ->
+            let actor = { Mb = mb; Cts = cts }
+            inbox <- Some actor
+            body actor)
 
     match inbox with
     | Some a -> a
@@ -187,31 +201,30 @@ let spawnLinked (parent: Actor<'ParentMsg>) (body: Actor<'Msg> -> Async<unit>) :
     let mutable inbox: Actor<'Msg> option = None
 
     let mb =
-        MailboxProcessor.Start(
-            (fun mb ->
-                let actor = { Mb = mb; Cts = cts }
-                inbox <- Some actor
+        MailboxProcessor.Start(fun mb ->
+            let actor = { Mb = mb; Cts = cts }
+            inbox <- Some actor
 
-                async {
-                    try
-                        do! body actor
-                    with ex ->
-                        parent.Post(
-                            unbox {
-                                Pid = box mb
-                                Reason = box ex
-                            }
-                        )
-                }),
-            cts.Token
-        )
+            async {
+                try
+                    do! body actor
+                with ex ->
+                    parent.Post(
+                        unbox {
+                            Pid = box mb
+                            Reason = box ex
+                        }
+                    )
+            })
 
     match inbox with
     | Some a -> a
     | None -> { Mb = mb; Cts = cts }
 
-/// Kill an actor — cancels its token, stopping message delivery.
-let kill (actor: Actor<'Msg>) : unit = actor.Cts.Cancel()
+/// Kill an actor — cancels its token and disposes the MailboxProcessor.
+let kill (actor: Actor<'Msg>) : unit =
+    actor.Cts.Cancel()
+    (actor.Mb :> System.IDisposable).Dispose()
 
 /// Enable supervision (stub on non-BEAM).
 let trapExits () : unit = ()
