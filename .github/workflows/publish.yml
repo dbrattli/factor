@@ -1,0 +1,50 @@
+name: Publish NuGet
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: "startsWith(github.event.head_commit.message, 'chore: release ')"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.x
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Extract version
+        id: version
+        run: |
+          MESSAGE="${{ github.event.head_commit.message }}"
+          VERSION="${MESSAGE#chore: release }"
+          VERSION="${VERSION%% *}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dependencies
+        run: |
+          dotnet tool restore
+          dotnet restore src/Fable.Actor
+
+      - name: Pack NuGet
+        run: just pack-version ${{ steps.version.outputs.version }}
+
+      - name: Push NuGet
+        run: dotnet nuget push 'src/**/Release/*.nupkg' -s https://api.nuget.org/v3/index.json -k ${{ secrets.NUGET_API_KEY }}
+
+      - name: Create GitHub Release
+        run: gh release create ${{ steps.version.outputs.tag }} --title "${{ steps.version.outputs.version }}" --generate-notes || echo "Release already exists"
+        env:
+          GH_TOKEN: ${{ github.token }}

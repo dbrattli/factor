@@ -1,11 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Author>Dag Brattli</Author>
+    <Copyright>Dag Brattli</Copyright>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <WarnOn>3390;$(WarnOn)</WarnOn>
+    <PackageTags>fsharp;fable;actor;actor-model;erlang;beam;python;javascript</PackageTags>
+    <Description>Cross-platform actor library for F# compiled via Fable to BEAM, Python, and JavaScript</Description>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Platform.fs" />
     <Compile Include="Actor.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="*.fsproj; *.fs; *.fsi; erl\*.erl" PackagePath="fable\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" Visible="false" PackagePath="\" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Core" Version="5.0.0-rc.1" />
