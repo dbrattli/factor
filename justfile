@@ -55,7 +55,7 @@ pack-version version:
 
 # Run EasyBuild.ShipIt for release management
 shipit *args:
-    dotnet shipit --pre-release rc --skip-merge-commit {{args}}
+    dotnet shipit --pre-release rc {{args}}
 
 # --- Tests ---
 
