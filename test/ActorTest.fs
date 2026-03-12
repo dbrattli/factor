@@ -189,3 +189,52 @@ let actor_kill_test () =
     sleep 50
 
     shouldBeFalse received
+
+// ============================================================================
+// callAsync + receiveAndReply tests (clean message types)
+// ============================================================================
+
+// No ReplyChannel in the message type!
+type CounterCmd =
+    | Inc
+    | Dec
+    | Get
+
+let actor_callAsync_test () =
+    // Server actor using receiveAndReply — message type is clean
+    let server: Actor<CounterCmd> =
+        spawn (fun () ->
+            let rec loop count =
+                actor {
+                    let! msg, rc = receiveAndReply<CounterCmd, int> ()
+
+                    match msg with
+                    | Inc ->
+                        rc.Reply count
+                        return! loop (count + 1)
+                    | Dec ->
+                        rc.Reply count
+                        return! loop (count - 1)
+                    | Get ->
+                        rc.Reply count
+                        return! loop count
+                }
+
+            loop 0)
+
+    // Client actor using callAsync
+    let mutable result = -1
+
+    let _client: Actor<obj> =
+        spawn (fun () ->
+            actor {
+                let! _n1 = callAsync<int, _> server Inc
+                let! _n2 = callAsync<int, _> server Inc
+                let! _n3 = callAsync<int, _> server Inc
+                let! count = callAsync<int, _> server Get
+                result <- count
+            })
+
+    sleep 50
+
+    shouldEqual 3 result
