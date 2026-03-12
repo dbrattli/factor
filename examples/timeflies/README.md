@@ -1,58 +1,56 @@
-# Timeflies - Factor Demo
+# Timeflies - Fable.Actor Demo
 
-A classic Reactive Extensions demo using Factor (F#/Fable.Beam) and Cowboy WebSockets.
+A classic Reactive Extensions demo reimplemented with actors using Fable.Actor (F#/Fable.Beam) and Cowboy WebSockets.
 
 ## What it does
 
-The letters of "TIME FLIES LIKE AN ARROW" follow your mouse cursor, with each successive letter delayed by an increasing amount (80ms per letter). This creates a trailing snake-like effect where the first letter follows immediately, while later letters lag behind.
+The letters of "TIME FLIES LIKE AN ARROW WITH F# AND FABLE.BEAM" follow your mouse cursor, with each successive letter
+delayed by an increasing amount (80ms per letter). This creates a trailing snake-like effect where the first letter
+follows immediately, while later letters lag behind.
 
 ## Architecture
 
-```
-Browser                              BEAM Server (Cowboy + Factor)
+```text
+Browser                              BEAM Server (Cowboy + Fable.Actor)
 ┌─────────────────┐                  ┌────────────────────────────────────┐
-│  mousemove      │ ──WebSocket──>   │  subject (input)                   │
+│  mousemove      │ ──WebSocket──>   │  Distributor actor                 │
 │  events (x,y)   │                  │         │                          │
 │                 │                  │         ▼                          │
-│                 │                  │  ofList(letters)                   │
-│                 │                  │  |> flatMap (for each letter)      │
-│                 │                  │       mouseMoves                   │
-│                 │                  │       |> delay(80ms * index)       │
-│                 │                  │       |> map(add letter offset)    │
+│                 │                  │  fan out MouseMove to all          │
+│                 │                  │  letter actors (one per char)      │
+│                 │                  │         │                          │
+│                 │                  │  Each letter actor:                │
+│                 │                  │    schedule(80ms * index)          │
+│                 │                  │    then send JSON back             │
 │                 │                  │         │                          │
 │  render letters │ <──WebSocket──   │         ▼                          │
-│  at positions   │                  │  send JSON to client               │
+│  at positions   │                  │  sendFn -> WebSocket frame         │
 └─────────────────┘                  └────────────────────────────────────┘
 ```
 
-## Key Factor features demonstrated
+## Key features demonstrated
 
-- **`subject`** - Creates a hot observable that can receive mouse events pushed from WebSocket
-- **`flatMap`** - For each letter, creates a stream that subscribes to mouse moves
-- **`delay`** - Each letter's stream is delayed by `index * 80ms`
-- **`map`** - Transforms mouse positions to letter positions with horizontal offset
+- **`spawn` / `spawnLinked`** - Distributor spawns linked letter actors; killing the distributor cleans up all children
+- **`actor { }`** - CPS computation expression for message receive loops
+- **`receive`** - Each actor blocks until a message arrives
+- **`schedule`** - Per-letter delay timer (80ms * index) before sending position update
+- **`send`** - Fan-out from distributor to letter actors
 
 ## Prerequisites
 
-- .NET SDK 8+
-- Fable.Beam compiler (at `../../../fable/fable-beam/src/Fable.Cli`)
+- .NET SDK 10+
+- Fable BEAM compiler
 - Erlang/OTP
 - rebar3
-- Factor library built (`just build` from project root)
 
 ## Running
 
 ```sh
 cd examples/timeflies
-
-# Build Factor library first (from project root)
-cd ../.. && just build && cd examples/timeflies
-
-# Build and run
 just run
 ```
 
-Then open http://localhost:3000 in your browser and move your mouse around.
+Then open <http://localhost:3000> in your browser and move your mouse around.
 
 ## Original
 

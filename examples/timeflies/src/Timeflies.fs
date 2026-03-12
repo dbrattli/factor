@@ -18,22 +18,22 @@ type LetterMsg =
 /// Returns the distributor actor — send MousePos to it.
 /// Kill the distributor to clean up (linked children die automatically).
 let setupPipeline (sendFn: string -> unit) : Actor<MousePos> =
-    spawn (fun () ->
+    spawn (fun inbox ->
         // Each letter is a linked child actor with a delay
         let letters =
             text
             |> Seq.toList
             |> List.mapi (fun index char ->
-                spawnLinked (fun () ->
-                    let me = self<LetterMsg> ()
-
+                spawnLinked inbox (fun letterInbox ->
                     let rec loop () =
                         actor {
-                            let! msg = receive<LetterMsg> ()
+                            let! msg = letterInbox.Receive()
 
                             match msg with
                             | MouseMove pos ->
-                                schedule (80 * index) (fun () -> send me (Delayed pos)) |> ignore
+                                schedule (80 * index) (fun () -> send letterInbox (Delayed pos))
+                                |> ignore
+
                                 return! loop ()
                             | Delayed pos ->
                                 let json =
@@ -53,7 +53,7 @@ let setupPipeline (sendFn: string -> unit) : Actor<MousePos> =
         // Distributor loop: receive MousePos, fan out to all letters
         let rec loop () =
             actor {
-                let! pos = receive<MousePos> ()
+                let! pos = inbox.Receive()
                 letters |> List.iter (fun letter -> send letter (MouseMove pos))
                 return! loop ()
             }
