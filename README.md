@@ -195,3 +195,4 @@ MIT
 
 - [FSharp.Control.AsyncRx](https://github.com/dbrattli/AsyncRx) — Async Reactive Extensions for F#
 - [Fable](https://github.com/fable-compiler/Fable) — F# to JS/Python/BEAM compiler
+- [Fable.Beam](https://github.com/fable-compiler/Fable.Beam) — F# bindings (FFI) for BEAM/Erlang
