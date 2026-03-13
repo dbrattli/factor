@@ -3,7 +3,7 @@
          send_msg/2, receive_msg/1,
          kill_process/1, exit_normal/0, trap_exits/0, format_reason/1,
          monitor_process/1, demonitor_process/1,
-         send_reply/3, recv_reply/1]).
+         send_reply/3, recv_reply/1, recv_reply_with_timeout/2]).
 
 %% Spawn a new process that runs Fun(ok).
 spawn_actor(Fun) ->
@@ -37,8 +37,8 @@ receive_msg(Cont) ->
         {'EXIT', _Pid, normal} ->
             receive_msg(Cont);
         {'EXIT', Pid, Reason} ->
-            %% Deliver EXIT as a message so actors can handle supervision
-            Cont({fable_actor_exit, Pid, Reason})
+            %% Deliver EXIT as a ChildExited record (Erlang map matching F# record)
+            Cont(#{pid => Pid, reason => Reason})
     end.
 
 %% Kill a process immediately.
@@ -78,4 +78,16 @@ recv_reply(Ref) ->
         {fable_actor_timer, _TRef, Callback} ->
             Callback(ok),
             recv_reply(Ref)
+    end.
+
+%% Blocking selective receive with timeout (milliseconds).
+%% Returns {some, Reply} or undefined (None).
+recv_reply_with_timeout(Ref, Timeout) ->
+    receive
+        {fable_actor_reply, Ref, Reply} -> {some, Reply};
+        {fable_actor_timer, _TRef, Callback} ->
+            Callback(ok),
+            recv_reply_with_timeout(Ref, Timeout)
+    after Timeout ->
+        undefined
     end.

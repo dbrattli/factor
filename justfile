@@ -59,8 +59,8 @@ shipit *args:
 
 # --- Tests ---
 
-# Run all tests (.NET + Python)
-test: test-native test-python
+# Run all tests (.NET + Python + BEAM)
+test: test-native test-python test-beam
 
 # Run .NET tests only
 test-native:
@@ -79,8 +79,6 @@ test-python:
 test-beam: build
     {{fable}} {{test_path}} --exclude Fable.Core --lang beam --outDir apps/test --noCache
     cp apps/fable_actor/src/*.erl apps/test/src/
-    # Add test app to rebar project_app_dirs
-    sed -i 's|"apps/fable_actor/fable_modules/\*"|"apps/fable_actor/fable_modules/*", "apps/test"|' rebar.config
     cd {{justfile_directory()}} && rebar3 compile
     @echo "Running BEAM tests..."
     cd {{justfile_directory()}} && erl \

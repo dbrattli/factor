@@ -135,6 +135,20 @@ let call (actor: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'Target
         cont (unbox (platform.recvReply ref))
 }
 
+/// Send a message and await a reply with a timeout in milliseconds.
+/// Raises TimeoutException if no reply is received within the timeout.
+let callWithTimeout (timeout: int) (actor: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> = {
+    Run = fun cont ->
+        let ref = platform.makeRef ()
+        let callerPid = platform.selfPid ()
+        let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
+        platform.sendMsg (actor.Pid, box (msgFactory rc))
+
+        match platform.recvReplyWithTimeout (ref, timeout) with
+        | Some reply -> cont (unbox<'Reply> reply)
+        | None -> raise (System.TimeoutException("Actor call timed out"))
+}
+
 /// Send a message and await a reply (non-blocking, inside actor { }).
 let callAsync<'Reply, 'Msg> (actor: Actor<'Msg>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
@@ -239,6 +253,29 @@ let call (target: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'Targe
         return reply
     }
 
+/// Send a message and await a reply with a timeout in milliseconds.
+/// Raises TimeoutException if no reply is received within the timeout.
+let callWithTimeout (timeout: int) (target: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> =
+    let mutable result: 'Reply option = None
+    let rc: ReplyChannel<'Reply> = { Reply = fun r -> result <- Some r }
+    target.Post(msgFactory rc)
+
+    let step = 5
+
+    let rec wait elapsed =
+        actor {
+            match result with
+            | Some r -> return r
+            | None ->
+                if elapsed >= timeout then
+                    raise (System.TimeoutException("Actor call timed out"))
+
+                do! Async.Sleep step
+                return! wait (elapsed + step)
+        }
+
+    wait 0
+
 /// Receive next message (free function, for backwards compatibility).
 let receive<'Msg> (inbox: Actor<'Msg>) : Async<'Msg> = inbox.Receive()
 
@@ -275,9 +312,9 @@ type SupervisedChild<'ParentMsg, 'Msg> = {
 
 /// Check if a message is a ChildExited notification.
 let tryAsChildExited (msg: obj) : ChildExited option =
-    try
+    if platform.isChildExited msg then
         Some(unbox<ChildExited> msg)
-    with _ ->
+    else
         None
 
 /// Spawn a supervised child actor. Retains the body for restart.
@@ -369,6 +406,7 @@ let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Act
                 match handler state msg with
                 | Continue newState -> return! loop newState
                 | Stop -> ()
+                | StopAbnormal ex -> raise ex
             }
 
         loop initialState

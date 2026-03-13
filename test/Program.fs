@@ -48,10 +48,19 @@ let mainAsync =
         let! r14 = runTest "actor_supervised_restart" actor_supervised_restart_test
         let! r15 = runTest "actor_supervised_stop" actor_supervised_stop_test
 
-        // kill
-        let! r16 = runTest "actor_kill" actor_kill_test
+        // StopAbnormal
+        let! r16 = runTest "actor_stop_abnormal" actor_stop_abnormal_test
+        let! r17 = runTest "actor_start_stop_abnormal" actor_start_stop_abnormal_test
+        let! r18 = runTest "actor_start_handler_stop_abnormal" actor_start_handler_stop_abnormal_test
 
-        let results = [ r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11; r12; r13; r14; r15; r16 ]
+        // callWithTimeout
+        let! r19 = runTest "actor_call_with_timeout_success" actor_call_with_timeout_success_test
+        let! r20 = runTest "actor_call_with_timeout_expires" actor_call_with_timeout_expires_test
+
+        // kill
+        let! r21 = runTest "actor_kill" actor_kill_test
+
+        let results = [ r1; r2; r3; r4; r5; r6; r7; r8; r9; r10; r11; r12; r13; r14; r15; r16; r17; r18; r19; r20; r21 ]
         let passed = results |> List.filter id |> List.length
         let total = results.Length
         printfn ""

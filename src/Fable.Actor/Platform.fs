@@ -27,11 +27,15 @@ type IActorPlatform =
     abstract makeRef: unit -> obj
     abstract sendReply: pid: obj * ref: obj * value: obj -> unit
     abstract recvReply: ref: obj -> obj
+    abstract recvReplyWithTimeout: ref: obj * timeout: int -> obj option
     abstract refEquals: a: obj * b: obj -> bool
 
     // Monitoring
     abstract monitorProcess: pid: obj -> obj
     abstract demonitorProcess: ref: obj -> unit
+
+    // Introspection
+    abstract isChildExited: msg: obj -> bool
 
     // Timers
     abstract timerSchedule: ms: int * callback: (unit -> unit) -> obj
