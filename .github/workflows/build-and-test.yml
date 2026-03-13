@@ -51,7 +51,7 @@ jobs:
         run: dotnet fable test --lang python --outDir build/tests --exclude Fable.Core --noCache
 
       - name: Run Python tests
-        run: cd build/tests && uv run --project ../../pyproject.toml python program.py
+        run: cd build/tests && uv run --project ../.. python program.py
 
       - name: Build BEAM and run tests
         run: just test-beam
