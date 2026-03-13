@@ -35,18 +35,18 @@ open Fable.Actor
 
 type CounterMsg =
     | Increment
-    | GetCount of ReplyChannel<int>
+    | GetCount
 
-let counter = start 0 (fun count msg ->
+let counter = start 0 (fun count (msg, rc) ->
     match msg with
     | Increment -> Continue (count + 1)
-    | GetCount rc ->
+    | GetCount ->
         rc.Reply count
         Continue count)
 
-send counter Increment
-send counter Increment
-let! count = call counter (fun rc -> GetCount rc)
+cast counter Increment
+cast counter Increment
+let! count = call counter GetCount
 // count = 2
 ```
 
@@ -111,14 +111,14 @@ For lower-level control, `spawnLinked` + `trapExits` gives you raw EXIT signals 
 ### Timers
 
 ```fsharp
-let ticker = start 0 (fun count msg ->
+let ticker = start 0 (fun count (msg, _rc) ->
     match msg with
     | "tick" ->
         printfn "tick %d" count
         Continue (count + 1)
     | _ -> Continue count)
 
-schedule 1000 (fun () -> send ticker "tick") |> ignore
+schedule 1000 (fun () -> cast ticker "tick") |> ignore
 ```
 
 ## Architecture
@@ -154,7 +154,9 @@ On non-BEAM targets, `Actor<'Msg>` is a thin wrapper around `MailboxProcessor<'M
 | `tryAsChildExited msg`                     | Check if a message is a `ChildExited` notification   |
 | `start state handler`                      | Stateful actor with message handler loop             |
 | `send actor msg`                           | Fire-and-forget message send                         |
-| `call actor msgFactory`                    | Async request-response (returns `ActorOp<'Reply>`)   |
+| `cast actor msg`                           | Fire-and-forget to a call-capable actor              |
+| `call actor msg`                           | Async request-response (returns `ActorOp<'Reply>`)   |
+| `callWithTimeout ms actor msg`             | Like `call` but raises `TimeoutException` on expiry  |
 | `kill actor`                               | Kill an actor immediately                            |
 | `trapExits ()`                             | Enable supervision (EXIT signals become messages)    |
 | `schedule ms callback`                     | Schedule a timer callback                            |
