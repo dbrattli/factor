@@ -8,7 +8,8 @@
     spawn/1, spawn_linked/1, self_pid/0, make_ref/0,
     kill_process/1, exit_normal/0, trap_exits/0, format_reason/1,
     send_msg/2, receive_/1,
-    send_reply/3, recv_reply/1, ref_equals/2,
+    send_reply/3, recv_reply/1, recv_reply_with_timeout/2, ref_equals/2,
+    is_child_exited/1,
     monitor_process/1, demonitor_process/1,
     timer_schedule/2, timer_cancel/1
 ]).
@@ -28,7 +29,9 @@ send_msg(Pid, Msg) -> fable_actor_core:send_msg(Pid, Msg).
 receive_(Cont) -> fable_actor_core:receive_msg(Cont).
 send_reply(Pid, Ref, Value) -> fable_actor_core:send_reply(Pid, Ref, Value).
 recv_reply(Ref) -> fable_actor_core:recv_reply(Ref).
+recv_reply_with_timeout(Ref, Timeout) -> fable_actor_core:recv_reply_with_timeout(Ref, Timeout).
 ref_equals(A, B) -> A =:= B.
+is_child_exited(Msg) -> is_map(Msg) andalso is_map_key(pid, Msg) andalso is_map_key(reason, Msg).
 
 %% Process monitoring
 monitor_process(Pid) -> fable_actor_core:monitor_process(Pid).

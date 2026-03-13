@@ -10,6 +10,7 @@ type ReplyChannel<'Reply> = { Reply: 'Reply -> unit }
 type Next<'State> =
     | Continue of 'State
     | Stop
+    | StopAbnormal of exn
 
 /// Notification when a child actor dies.
 type ChildExited = { Pid: obj; Reason: obj }
