@@ -28,10 +28,10 @@ type Actor<'Msg> = {
 } with
 
     member _.Receive() : ActorOp<'Msg> = {
-        Run = fun cont -> platform.receive (fun raw -> cont (unbox<'Msg> raw))
+        Run = fun cont -> receiveMsg (fun raw -> cont (unbox<'Msg> raw))
     }
 
-    member this.Post(msg: 'Msg) = platform.sendMsg (this.Pid, box msg)
+    member this.Post(msg: 'Msg) = sendMsg this.Pid (box msg)
 
 type ActorBuilder() =
     member _.Bind(op: ActorOp<'T>, f: 'T -> ActorOp<'U>) : ActorOp<'U> = {
@@ -98,8 +98,8 @@ let actor = ActorBuilder()
 /// Spawn an actor. Body receives inbox (self-reference) for Receive/Post.
 let spawn (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
     let rawPid =
-        platform.spawn (fun () ->
-            let me: Actor<'Msg> = { Pid = platform.selfPid () }
+        spawnProcess (fun () ->
+            let me: Actor<'Msg> = { Pid = selfPid () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
@@ -107,51 +107,51 @@ let spawn (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
 /// Spawn a linked child actor (parent gets EXIT signal on crash).
 let spawnLinked (_parent: Actor<'ParentMsg>) (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
     let rawPid =
-        platform.spawnLinked (fun () ->
-            let me: Actor<'Msg> = { Pid = platform.selfPid () }
+        spawnLinkedProcess (fun () ->
+            let me: Actor<'Msg> = { Pid = selfPid () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
 
 /// Get own pid (only valid inside actor body).
-let self<'Msg> () : Actor<'Msg> = { Pid = platform.selfPid () }
+let self<'Msg> () : Actor<'Msg> = { Pid = selfPid () }
 
 /// Kill an actor and its linked children.
-let kill (actor: Actor<'Msg>) : unit = platform.killProcess actor.Pid
+let kill (actor: Actor<'Msg>) : unit = killProcess actor.Pid
 
 /// Enable supervision — child EXIT signals become messages.
-let trapExits () : unit = platform.trapExits ()
+let trapExits () : unit = Platform.trapExits ()
 
 /// Format a crash reason as a string.
-let formatReason (reason: obj) : string = platform.formatReason reason
+let formatReason (reason: obj) : string = Platform.formatReason reason
 
 /// Send a message and await a reply (inside actor { }).
 let call (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
-        let ref = platform.makeRef ()
-        let callerPid = platform.selfPid ()
-        let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
-        platform.sendMsg (actor.Pid, box (msg, rc))
-        cont (unbox (platform.recvReply ref))
+        let ref = makeRef ()
+        let callerPid = selfPid ()
+        let rc: ReplyChannel<'Reply> = { Reply = fun reply -> sendReply callerPid ref reply }
+        sendMsg actor.Pid (box (msg, rc))
+        cont (unbox (recvReply ref))
 }
 
 /// Send a message and await a reply with a timeout in milliseconds.
 /// Raises TimeoutException if no reply is received within the timeout.
 let callWithTimeout (timeout: int) (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
-        let ref = platform.makeRef ()
-        let callerPid = platform.selfPid ()
-        let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
-        platform.sendMsg (actor.Pid, box (msg, rc))
+        let ref = makeRef ()
+        let callerPid = selfPid ()
+        let rc: ReplyChannel<'Reply> = { Reply = fun reply -> sendReply callerPid ref reply }
+        sendMsg actor.Pid (box (msg, rc))
 
-        match platform.recvReplyWithTimeout (ref, timeout) with
+        match recvReplyWithTimeout ref timeout with
         | Some reply -> cont (unbox<'Reply> reply)
         | None -> raise (System.TimeoutException("Actor call timed out"))
 }
 
-/// Receive next message (free function, uses platform receive).
+/// Receive next message (free function).
 let receive<'Msg> () : ActorOp<'Msg> = {
-    Run = fun cont -> platform.receive (fun raw -> cont (unbox<'Msg> raw))
+    Run = fun cont -> receiveMsg (fun raw -> cont (unbox<'Msg> raw))
 }
 
 #else
@@ -275,7 +275,7 @@ type SupervisedChild<'ParentMsg, 'Msg> = {
 
 /// Check if a message is a ChildExited notification.
 let tryAsChildExited (msg: obj) : ChildExited option =
-    if platform.isChildExited msg then
+    if isChildExited msg then
         Some(unbox<ChildExited> msg)
     else
         None
@@ -380,8 +380,8 @@ let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Act
 
 #if FABLE_COMPILER_BEAM
     let rawPid =
-        platform.spawn (fun () ->
-            let me: Actor<'Msg> = { Pid = platform.selfPid () }
+        spawnProcess (fun () ->
+            let me: Actor<'Msg> = { Pid = selfPid () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
@@ -392,10 +392,10 @@ let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Act
 #if FABLE_COMPILER_BEAM
 
 /// Schedule a timer callback. Returns an opaque handle for cancellation.
-let schedule (ms: int) (callback: unit -> unit) : obj = platform.timerSchedule (ms, callback)
+let schedule (ms: int) (callback: unit -> unit) : obj = timerSchedule ms callback
 
 /// Cancel a scheduled timer.
-let cancelTimer (timer: obj) : unit = platform.timerCancel timer
+let cancelTimer (timer: obj) : unit = timerCancel timer
 
 #else
 
