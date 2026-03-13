@@ -43,8 +43,6 @@ let mainAsync =
 
         // supervision
         let! r13 = runTest "actor_linked_crash" actor_linked_crash_test
-
-        // supervised actors
         let! r14 = runTest "actor_supervised_restart" actor_supervised_restart_test
         let! r15 = runTest "actor_supervised_stop" actor_supervised_stop_test
 

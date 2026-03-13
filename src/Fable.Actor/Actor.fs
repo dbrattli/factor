@@ -126,48 +126,27 @@ let trapExits () : unit = platform.trapExits ()
 let formatReason (reason: obj) : string = platform.formatReason reason
 
 /// Send a message and await a reply (inside actor { }).
-let call (actor: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> = {
+let call (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
         let ref = platform.makeRef ()
         let callerPid = platform.selfPid ()
         let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
-        platform.sendMsg (actor.Pid, box (msgFactory rc))
+        platform.sendMsg (actor.Pid, box (msg, rc))
         cont (unbox (platform.recvReply ref))
 }
 
 /// Send a message and await a reply with a timeout in milliseconds.
 /// Raises TimeoutException if no reply is received within the timeout.
-let callWithTimeout (timeout: int) (actor: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> = {
+let callWithTimeout (timeout: int) (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
         let ref = platform.makeRef ()
         let callerPid = platform.selfPid ()
         let rc: ReplyChannel<'Reply> = { Reply = fun reply -> platform.sendReply (callerPid, ref, reply) }
-        platform.sendMsg (actor.Pid, box (msgFactory rc))
+        platform.sendMsg (actor.Pid, box (msg, rc))
 
         match platform.recvReplyWithTimeout (ref, timeout) with
         | Some reply -> cont (unbox<'Reply> reply)
         | None -> raise (System.TimeoutException("Actor call timed out"))
-}
-
-/// Send a message and await a reply (non-blocking, inside actor { }).
-let callAsync<'Reply, 'Msg> (actor: Actor<'Msg>) (msg: 'Msg) : ActorOp<'Reply> = {
-    Run = fun cont ->
-        let ref = platform.makeRef ()
-        let callerPid = platform.selfPid ()
-        platform.sendMsg (actor.Pid, box (callerPid, ref, box msg))
-        let reply = platform.recvReply ref
-        cont (unbox<'Reply> reply)
-}
-
-/// Receive a message with a reply channel (inside actor { }).
-let receiveAndReply<'Msg, 'Reply> () : ActorOp<'Msg * ReplyChannel<'Reply>> = {
-    Run = fun cont ->
-        platform.receive (fun raw ->
-            let (callerPid, ref, msgRaw) = unbox<obj * obj * obj> raw
-            let rc: ReplyChannel<'Reply> = {
-                Reply = fun reply -> platform.sendReply (callerPid, ref, box reply)
-            }
-            cont (unbox<'Msg> msgRaw, rc))
 }
 
 /// Receive next message (free function, uses platform receive).
@@ -244,21 +223,21 @@ let kill (actor: Actor<'Msg>) : unit =
 let trapExits () : unit = ()
 
 /// Send a message and await a reply (inside actor { }).
-let call (target: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> =
+let call (target: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> =
     actor {
         let! reply =
             target.Mb.PostAndAsyncReply(fun rc ->
-                msgFactory { Reply = fun r -> rc.Reply(r) })
+                (msg, { Reply = fun r -> rc.Reply(r) }))
 
         return reply
     }
 
 /// Send a message and await a reply with a timeout in milliseconds.
 /// Raises TimeoutException if no reply is received within the timeout.
-let callWithTimeout (timeout: int) (target: Actor<'TargetMsg>) (msgFactory: ReplyChannel<'Reply> -> 'TargetMsg) : ActorOp<'Reply> =
+let callWithTimeout (timeout: int) (target: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> =
     let mutable result: 'Reply option = None
     let rc: ReplyChannel<'Reply> = { Reply = fun r -> result <- Some r }
-    target.Post(msgFactory rc)
+    target.Post((msg, rc))
 
     let step = 5
 
@@ -278,22 +257,6 @@ let callWithTimeout (timeout: int) (target: Actor<'TargetMsg>) (msgFactory: Repl
 
 /// Receive next message (free function, for backwards compatibility).
 let receive<'Msg> (inbox: Actor<'Msg>) : Async<'Msg> = inbox.Receive()
-
-/// Send a message and await a reply (non-blocking, inside actor { }).
-let callAsync<'Reply, 'Msg> (target: Actor<'Msg>) (msg: 'Msg) : Async<'Reply> =
-    target.Mb.PostAndAsyncReply(fun rc ->
-        unbox (box (rc, box 0, box msg)))
-
-/// Receive a message with a reply channel (inside actor { }).
-let receiveAndReply<'Msg, 'Reply> (inbox: Actor<obj>) : Async<'Msg * ReplyChannel<'Reply>> =
-    async {
-        let! raw = inbox.Receive()
-        let (rc, _ref, msgRaw) = unbox<obj * obj * obj> raw
-        let replyChannel: ReplyChannel<'Reply> = {
-            Reply = fun reply -> (unbox<Control.AsyncReplyChannel<'Reply>> rc).Reply(reply)
-        }
-        return (unbox<'Msg> msgRaw, replyChannel)
-    }
 
 #endif
 
@@ -395,6 +358,10 @@ let handleChildExit
 
 /// Send a message (fire and forget).
 let send (actor: Actor<'Msg>) (msg: 'Msg) : unit = actor.Post(msg)
+
+/// Fire-and-forget message to a call-capable actor (no-op reply channel).
+let cast (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : unit =
+    actor.Post((msg, { Reply = fun _ -> () }))
 
 /// Start a stateful actor with a message handler.
 let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Actor<'Msg> =

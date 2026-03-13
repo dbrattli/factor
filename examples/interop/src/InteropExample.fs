@@ -27,13 +27,13 @@ let private rawSend (pid: obj) (msg: obj) : unit = nativeOnly
 
 type DagMsg =
     | HelloFrom of string
-    | AskName of ReplyChannel<string>
+    | AskName
 
 // --- Dag: the F# actor ---
 
 /// Start Dag. He keeps Joe's raw pid as state so he can reply.
-let startDag (joePid: obj) : Actor<DagMsg> =
-    Actor.start joePid (fun joePid msg ->
+let startDag (joePid: obj) : Actor<DagMsg * ReplyChannel<string>> =
+    Actor.start joePid (fun joePid (msg, rc) ->
         match msg with
         | HelloFrom name ->
             printfmt "  [Dag/F#]     Received hello from ~s~n" [ name ]
@@ -41,7 +41,7 @@ let startDag (joePid: obj) : Actor<DagMsg> =
             rawSend joePid "Hei Joe! Dag her. Hyggelig å møte deg!"
             Continue joePid
 
-        | AskName rc ->
+        | AskName ->
             printfmt "  [Dag/F#]     Someone asked my name~n" []
             rc.Reply "Dag Brattli"
             Continue joePid)
