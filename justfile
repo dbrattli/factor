@@ -24,7 +24,6 @@ clean:
 # Build F# to Erlang via Fable.Beam, then compile with rebar3
 build: clean
     {{fable}} src/Fable.Actor --exclude Fable.Core --lang beam --outDir apps/fable_actor --noCache
-    cp src/Fable.Actor/erl/*.erl apps/fable_actor/src/
     rebar3 compile
 
 # Build F# projects only (type check)
@@ -78,7 +77,6 @@ test-python:
 # Run BEAM tests: compile F# → Erlang via Fable, then run
 test-beam: build
     {{fable}} {{test_path}} --exclude Fable.Core --lang beam --outDir apps/test --noCache
-    cp apps/fable_actor/src/*.erl apps/test/src/
     cd {{justfile_directory()}} && rebar3 compile
     @echo "Running BEAM tests..."
     cd {{justfile_directory()}} && erl \
@@ -96,7 +94,6 @@ timeflies_app := timeflies_path / "apps/timeflies"
 # Build timeflies example: F# → Erlang, compile with rebar3
 build-timeflies: build
     {{fable}} {{timeflies_src}} --exclude Fable.Core --lang beam --outDir {{timeflies_app}} --noCache
-    cp apps/fable_actor/src/*.erl {{timeflies_app}}/src/
     cp {{timeflies_src}}/erl/*.erl {{timeflies_app}}/src/
     cd {{timeflies_path}} && rebar3 compile
 
