@@ -72,7 +72,7 @@ test-python:
     rm -rf {{build_path}}/tests
     {{fable_python}} {{test_path}} --lang python --outDir {{build_path}}/tests --exclude Fable.Core --noCache
     @echo "Running Python tests..."
-    cd {{build_path}}/tests && uv run --project ../../pyproject.toml python program.py
+    cd {{build_path}}/tests && uv run --project ../.. python program.py
 
 # Run BEAM tests: compile F# → Erlang via Fable, then run
 test-beam: build
