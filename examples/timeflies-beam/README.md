@@ -4,7 +4,7 @@ A classic Reactive Extensions demo reimplemented with actors using Fable.Actor (
 
 ## What it does
 
-The letters of "TIME FLIES LIKE AN ARROW WITH F# AND FABLE.BEAM" follow your mouse cursor, with each successive letter
+The letters of "TIME FLIES LIKE AN ARROW" follow your mouse cursor, with each successive letter
 delayed by an increasing amount (80ms per letter). This creates a trailing snake-like effect where the first letter
 follows immediately, while later letters lag behind.
 
@@ -46,7 +46,7 @@ Browser                              BEAM Server (Cowboy + Fable.Actor)
 ## Running
 
 ```sh
-cd examples/timeflies
+cd examples/timeflies-beam
 just run
 ```
 
