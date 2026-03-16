@@ -3,7 +3,7 @@ module Timeflies
 open Fable.Actor.Types
 open Fable.Actor
 
-let text = "TIME FLIES LIKE AN ARROW WITH F# AND FABLE.BEAM"
+let text = "TIME FLIES LIKE AN ARROW"
 
 type MousePos = { X: int; Y: int }
 

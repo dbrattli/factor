@@ -3,12 +3,11 @@
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Timeflies.fs" />
     <Compile Include="Http.fs" />
     <Compile Include="App.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../src/Fable.Actor/Fable.Actor.fsproj" />
+    <ProjectReference Include="../../timeflies/src/Timeflies.Common.fsproj" />
     <PackageReference Include="Fable.Beam" Version="5.0.0-rc.4" />
     <PackageReference Include="Fable.Beam.Cowboy" Version="5.0.0-rc.4" />
   </ItemGroup>

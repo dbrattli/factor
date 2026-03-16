@@ -87,7 +87,7 @@ test-beam: build
 
 # --- Timeflies example ---
 
-timeflies_path := "examples/timeflies"
+timeflies_path := "examples/timeflies-beam"
 timeflies_src := timeflies_path / "src"
 timeflies_app := timeflies_path / "apps/timeflies"
 

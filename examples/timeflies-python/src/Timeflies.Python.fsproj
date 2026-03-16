@@ -7,7 +7,7 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../src/Fable.Actor/Fable.Actor.fsproj" />
+    <ProjectReference Include="../../timeflies/src/Timeflies.Common.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Core" Version="5.0.0-rc.1" />

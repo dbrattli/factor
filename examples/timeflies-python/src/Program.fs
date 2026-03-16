@@ -1,81 +1,50 @@
 module Program
 
+open Fable.Core
 open Fable.Python.TkInter
 open Fable.Python.AsyncIO
 open Fable.Actor
 
 // ---------------------------------------------------------------------------
-// Types
+// TkInter UI setup
 // ---------------------------------------------------------------------------
 
-let text = "TIME FLIES LIKE AN ARROW"
+[<Emit("__import__('json').loads($0)")>]
+let parseJson (s: string) : obj = nativeOnly
 
-type LetterMsg =
-    | MoveTo of x: int * y: int
-
-// ---------------------------------------------------------------------------
-// Actor-based pipeline
-// ---------------------------------------------------------------------------
-
-/// Each letter actor delays mouse positions by (index * 100ms).
-/// Every position gets its own timer — mimics AsyncRx.delay behavior
-/// where each letter shows where the mouse was N ms ago.
-let letterActor (index: int) (label: Label) =
-    spawn (fun inbox ->
-        let rec loop () =
-            actor {
-                let! (MoveTo(x, y)) = inbox.Receive()
-
-                schedule (100 * index) (fun () ->
-                    label.place (x + index * 12 + 15, y))
-                |> ignore
-
-                return! loop ()
-            }
-
-        loop ())
-
-let setupPipeline (root: Tk) =
-    let frame = Frame(root, width = 800, height = 600, bg = "#1a1a2e")
-    frame.pack ()
-
-    // Spawn a letter actor for each character
-    let letters =
-        text
-        |> Seq.toList
-        |> List.mapi (fun i c ->
-            let label = Label(frame, text = string c, fg = "#00ffff", bg = "#1a1a2e")
-            letterActor i label)
-
-    // Distributor: fans out mouse positions to all letter actors
-    let distributor =
-        spawn (fun inbox ->
-            let rec loop () =
-                actor {
-                    let! pos = inbox.Receive()
-                    letters |> List.iter (fun letter -> send letter pos)
-                    return! loop ()
-                }
-
-            loop ())
-
-    distributor, frame
-
-// ---------------------------------------------------------------------------
-// Main — async event loop with tkinter integration
-// ---------------------------------------------------------------------------
+[<Emit("$0[$1]")>]
+let getField (o: obj) (key: string) : obj = nativeOnly
 
 let mainAsync =
     async {
         let root = Tk()
         root.title "Fable.Actor Timeflies - Python"
 
-        let distributor, frame = setupPipeline root
+        let frame = Frame(root, width = 800, height = 600, bg = "#1a1a2e")
+        frame.pack ()
+
+        // Pre-create labels for each character
+        let labels =
+            Timeflies.text
+            |> Seq.toList
+            |> List.mapi (fun _i c ->
+                Label(frame, text = string c, fg = "#00ffff", bg = "#1a1a2e"))
+            |> Array.ofList
+
+        // sendFn: parse JSON and place the label
+        let sendFn (json: string) =
+            let data = parseJson json
+            let index = unbox<int> (getField data "index")
+            let x = unbox<int> (getField data "x")
+            let y = unbox<int> (getField data "y")
+            labels.[index].place (x, y)
+
+        let distributor = Timeflies.setupPipeline sendFn
 
         frame.bind (
             "<Motion>",
             fun (ev: Event) ->
-                send distributor (MoveTo(ev.x, ev.y))
+                send distributor { Timeflies.X = ev.x; Timeflies.Y = ev.y }
         )
         |> ignore
 
