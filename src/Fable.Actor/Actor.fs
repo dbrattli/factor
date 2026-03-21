@@ -66,6 +66,8 @@ type Actor<'Msg> = {
     Cts: System.Threading.CancellationTokenSource
 } with
 
+    member this.Pid : obj = box this.Mb
+
     member this.Receive() : Async<'Msg> = this.Mb.Receive()
 
     member this.Post(msg: 'Msg) =
@@ -418,3 +420,7 @@ let cancelTimer (timer: obj) : unit =
     (unbox<System.Threading.CancellationTokenSource> timer).Cancel()
 
 #endif
+
+/// Extract the raw platform handle from an actor.
+/// BEAM: returns the Erlang PID. Non-BEAM: returns a boxed MailboxProcessor.
+let pid (actor: Actor<'Msg>) : obj = actor.Pid
