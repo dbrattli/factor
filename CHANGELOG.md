@@ -1,10 +1,22 @@
 ---
-last_commit_released: 8746111d7ab0738bfe18016dfc0b513c8e0dd380
+last_commit_released: 6862f899272abf3da0a5ee695275772780eadec4
 ---
 
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## 5.0.0-rc.3 - 2026-03-21
+
+### 🚀 Features
+
+* Add unified `pid` function with no compiler directives (#10) ([d6345ab](https://github.com/dbrattli/Fable.Actor/commit/d6345ab4451dae0fa140a440423b0136a58e25fd))
+
+### 🐞 Bug Fixes
+
+* Use directory path for uv run --project in test-python ([ba024a5](https://github.com/dbrattli/Fable.Actor/commit/ba024a5a4bb74b64591e5771fad9798a388f11f1))
+
+<strong><small>[View changes on Github](https://github.com/dbrattli/Fable.Actor/compare/8746111d7ab0738bfe18016dfc0b513c8e0dd380..6862f899272abf3da0a5ee695275772780eadec4)</small></strong>
 
 ## 5.0.0-rc.2 - 2026-03-13
 
