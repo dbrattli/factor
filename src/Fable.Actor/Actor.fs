@@ -17,6 +17,7 @@ open Fable.Actor.Types
 
 #if FABLE_COMPILER_BEAM
 
+open Fable.Beam.Erlang
 open Fable.Actor.Platform
 
 // === BEAM: CPS-based, native processes ===
@@ -24,7 +25,7 @@ open Fable.Actor.Platform
 type ActorOp<'T> = { Run: ('T -> unit) -> unit }
 
 type Actor<'Msg> = {
-    Pid: obj
+    Pid: Pid
 } with
 
     member _.Receive() : ActorOp<'Msg> = {
@@ -100,8 +101,8 @@ let actor = ActorBuilder()
 /// Spawn an actor. Body receives inbox (self-reference) for Receive/Post.
 let spawn (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
     let rawPid =
-        spawnProcess (fun () ->
-            let me: Actor<'Msg> = { Pid = selfPid () }
+        Fable.Beam.Erlang.spawn (fun () ->
+            let me: Actor<'Msg> = { Pid = Fable.Beam.Erlang.self () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
@@ -109,14 +110,14 @@ let spawn (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
 /// Spawn a linked child actor (parent gets EXIT signal on crash).
 let spawnLinked (_parent: Actor<'ParentMsg>) (body: Actor<'Msg> -> ActorOp<unit>) : Actor<'Msg> =
     let rawPid =
-        spawnLinkedProcess (fun () ->
-            let me: Actor<'Msg> = { Pid = selfPid () }
+        spawnLink (fun () ->
+            let me: Actor<'Msg> = { Pid = Fable.Beam.Erlang.self () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
 
 /// Get own pid (only valid inside actor body).
-let self<'Msg> () : Actor<'Msg> = { Pid = selfPid () }
+let self<'Msg> () : Actor<'Msg> = { Pid = Fable.Beam.Erlang.self () }
 
 /// Kill an actor and its linked children.
 let kill (actor: Actor<'Msg>) : unit = killProcess actor.Pid
@@ -131,7 +132,7 @@ let formatReason (reason: obj) : string = Platform.formatReason reason
 let call (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
         let ref = makeRef ()
-        let callerPid = selfPid ()
+        let callerPid = Fable.Beam.Erlang.self ()
         let rc: ReplyChannel<'Reply> = { Reply = fun reply -> sendReply callerPid ref reply }
         sendMsg actor.Pid (box (msg, rc))
         cont (unbox (recvReply ref))
@@ -142,7 +143,7 @@ let call (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Repl
 let callWithTimeout (timeout: int) (actor: Actor<'Msg * ReplyChannel<'Reply>>) (msg: 'Msg) : ActorOp<'Reply> = {
     Run = fun cont ->
         let ref = makeRef ()
-        let callerPid = selfPid ()
+        let callerPid = Fable.Beam.Erlang.self ()
         let rc: ReplyChannel<'Reply> = { Reply = fun reply -> sendReply callerPid ref reply }
         sendMsg actor.Pid (box (msg, rc))
 
@@ -382,8 +383,8 @@ let start (initialState: 'State) (handler: 'State -> 'Msg -> Next<'State>) : Act
 
 #if FABLE_COMPILER_BEAM
     let rawPid =
-        spawnProcess (fun () ->
-            let me: Actor<'Msg> = { Pid = selfPid () }
+        Fable.Beam.Erlang.spawn (fun () ->
+            let me: Actor<'Msg> = { Pid = Fable.Beam.Erlang.self () }
             (body me).Run(fun () -> ()))
 
     { Pid = rawPid }
@@ -422,5 +423,8 @@ let cancelTimer (timer: obj) : unit =
 #endif
 
 /// Extract the raw platform handle from an actor.
-/// BEAM: returns the Erlang PID. Non-BEAM: returns a boxed MailboxProcessor.
+#if FABLE_COMPILER_BEAM
+let pid (actor: Actor<'Msg>) : Pid = actor.Pid
+#else
 let pid (actor: Actor<'Msg>) : obj = actor.Pid
+#endif
