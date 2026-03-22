@@ -129,6 +129,7 @@ timeflies_js_src := timeflies_js_path / "src"
 
 # Build timeflies-js: F# → JavaScript via Fable
 build-timeflies-js:
+    cd {{timeflies_js_path}} && npm install
     cd {{timeflies_js_path}} && dotnet fable src --noCache
 
 # Run timeflies-js demo on http://localhost:3000
